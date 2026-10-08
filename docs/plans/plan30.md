@@ -12,54 +12,35 @@ The book lives in `docs/mdbook`; generated HTML is excluded from source packages
 
 ## GitHub CI and release work
 
-- [x] Add push/PR/manual checks and a default-feature Windows x86_64 build through the canonical dist staging command. Version-matching `v*` tags publish the verified `rez.exe`, checksum, and receipt.
-- [x] Validate the workflow with actionlint 1.7.12 and pass 25 Python helper tests, including credential-host scoping and cleanup after a failed fetch.
-- [x] Confirm a relocated Windows executable generates the commented default config and runs frozen Python with no host Python on PATH. Quickstart creates platform/arch/os/rez definitions; the unsupported legacy rezgui entry was removed from its requested list.
-- [x] Verify the staged source archive (739 members, exact bytes and CRCs), canonical helper equality, frozen runtime, no-Python quickstart, bound Rez execution, and installed CPython execution. The native Rez binding no longer declares an external Python dependency.
-- [x] Before adding the CPython bridge, the final binder source passed one full release workspace campaign: 1,507 test/doc-test executions, zero failures and seven ignored scenarios. Strict release all-target workspace Clippy passed separately. These results do not establish acceptance of later Python API changes.
-- [x] Verify the new `rez-python-api` bridge and extracted `rez.rs` distribution: 14 acceptance tests passed on each of CPython 3.13.11 and 3.10.18 against the same Windows abi3 ZIP; all 14 archive members matched canonical bytes and CRCs. Strict release all-target workspace Clippy passed after the bridge changes.
-- [x] After adding the CPython bridge, one full release workspace campaign passed: 1,507 test/doc-test executions, zero failures, seven ignored scenarios, across 46 targets. The interrupted compile attempt is not a test receipt.
-- [x] Configure read-only deploy keys for the four private GUI repositories and their corresponding Actions Secrets. Each key passed a fresh SSH read check; private key scratch files were removed. The CI fetch helper has 30 passing Python helper tests, including credential isolation and cleanup.
-- [ ] Accept a fresh hosted GitHub run after the Windows path-authority changes. Run `37734529235` fetched the locked dependencies but failed the earlier Pip Windows 8.3-path regression. Later run `37742726286` passed that Pip test but failed repository copying with mixed root spellings. Both runs remain failed historical receipts; a local Pip repair does not establish repository or full hosted acceptance. Run [`37750577006`](https://github.com/ssoj13/rez-rs/actions/runs/37750577006) at `b3bbda6` passed both earlier path regressions but stopped the normal-path campaign in the PowerShell stdin UTF-8 BOM fixture; the current fixture repair needs a fresh hosted run. Fork PRs run source checks only while the dependency repositories remain private.
+CI mirrors blender-mcp-rs: one Windows/Linux/macOS matrix job runs `python bootstrap.py ci --target <triple>` ([`ci.py`](../../ci.py)), and tags publish two verified ZIPs per platform. See [development](../mdbook/src/development.md#github-ci-and-releases). Earlier Windows-only CI runs (`37728300016` … `37757638446`) all failed and are superseded.
 
-## Windows path authority and CI
+- [x] Replace the Windows-only workflow and `ci/` scripts with the single `ci.py` entry point; release ZIPs are verified after extraction (the CLI ZIP through its own `install.py`).
+- [x] Private GUI dependencies use one fine-grained `DEPENDENCIES_TOKEN` instead of four deploy keys.
+- [x] Fix Linux-only compile error and Clippy findings in `model::platform` and `resolve::bundle_context` (found with a WSL Linux build).
+- [ ] Set `DEPENDENCIES_TOKEN` and delete the four `DEPENDENCY_*_SSH_KEY` secrets.
+- [ ] Accept a green hosted run on all three platforms.
+
+## Windows path authority
 
 The shared [path-authority contract](../mdbook/src/architecture-crates.md#path-authority-and-source-identity)
 separates lexical keys, configured/canonical/8.3 root relations, generated-component
 validation, existing source identity, staging coordinates, and metadata-content
 relocation. It preserves configured junction roots while rejecting generated
-junctions, parent traversal, and outside destinations.
+junctions, parent traversal, and outside destinations. Dedicated regressions
+create genuine 8.3 aliases.
 
-- [x] Verify the current path-authority implementation and its existing consumers, including repository copy, read-only lookup, SourceMap, and generated-directory checks. The local `b3bbda6` Windows source gate below passed; strict release all-target workspace Clippy passed in 14.919 seconds, all 33 main Python helper tests passed, and formatting, mdbook, and actionlint checks passed. The receipt is `dist/windows-path-gates.json`; artifact and hosted acceptance remain separate.
-- [x] Run `python ci/test_workspace.py --require-short-path` locally at `b3bbda6`: both full locked release workspace campaigns passed, with normal temporary paths and a genuine Windows 8.3 `TEMP` alias. Each campaign passed 1,528 test/doc-test executions across 47 targets, zero failures and seven ignored scenarios; the matrix took 571.282 seconds. The total 3,056 executions repeat the same scopes in the two path environments. Missing alias capability fails the gate.
-- [ ] Accept the same two-campaign gate in a fresh hosted Windows run; failed runs `37734529235` and `37742726286` retain their separate Pip and mixed-root repository-copy failures.
-- [x] Rebuild and verify CLI/Python/source artifacts after the path changes at `b3bbda6`. `bootstrap.py p --force` passed in 77.508 seconds; `ci/verify_dist.py --require-python` passed in 16.068 seconds, checking all 760 source members against canonical bytes and CRCs, installer helper equality, relocated CLI/frozen Python, quickstart, and native CPython consumers. The same fresh Windows abi3 ZIP passed 15 extracted-package API tests on each of CPython 3.13.11 and 3.10.18; formatting passed. The receipt is `dist/windows-path-artifacts.json`. These local checks do not establish hosted CI or external recipe installation. The earlier 1,522-test and 759-source-member receipts below retain their original scope.
+- [x] Verify the path-authority implementation and its consumers (repository copy, read-only lookup, SourceMap, generated directories) at `b3bbda6`.
 
-## PowerShell pipe encoding and current CI
+## PowerShell redirected-input preamble
 
-[Hosted run `37750577006`](https://github.com/ssoj13/rez-rs/actions/runs/37750577006)
-at `b3bbda6` passed the earlier Pip and mixed-root repository-copy regressions,
-then stopped in the normal-temporary-path PowerShell fixture on a UTF-8 BOM in
-native stdin. It did not complete the normal campaign or reach full 8.3-path
-acceptance. The failed run does not invalidate the separate local `b3bbda6`
-receipts above or establish a passing hosted gate.
+Windows PowerShell 5.1 (.NET Framework) creates a redirected native stdin writer
+with `[Console]::InputEncoding` and flushes it immediately, which can emit a UTF-8
+BOM before the pipeline writer applies `$OutputEncoding`. Test fixtures therefore
+set `$OutputEncoding`, `[Console]::InputEncoding` and `[Console]::OutputEncoding`
+to UTF-8 without a BOM; the native-baseline regression covers all four
+input/output BOM combinations. Production rendering is unchanged.
 
-The byte-level local reproduction distinguishes PowerShell's `$OutputEncoding`
-for text piped to native stdin from `[Console]::OutputEncoding` for console
-output. A BOM-enabled `$OutputEncoding` produces the `EF BB BF` prefix even when
-console output encoding omits the BOM. The fixture repair sets both encodings
-explicitly to UTF-8 without a BOM. A native baseline regression covers both
-explicitly selected caller BOM preferences, Unicode input, and preservation of
-the caller's `$OutputEncoding` object by rendering. This changes test setup, not the production shell renderer.
-
-- [x] Accept the repaired fixture and native BOM/Unicode/preference-identity baseline in both full local workspace campaigns. Normal and genuine Windows 8.3 temporary paths each passed 1,529 test/doc-test executions across 47 targets, zero failures and seven ignored scenarios, totaling 3,058 repeated executions; the matrix took 763.677 seconds. The raw `EF BB BF` baseline assertion passed on Windows PowerShell and PowerShell 7. Strict release all-target workspace Clippy passed in 7.558 seconds without warnings; all 33 main Python helper tests, formatting, mdbook, and actionlint passed. The receipt is `dist/powershell-encoding-gates.json`; artifact and hosted acceptance remain separate.
-- [x] Rebuild and reverify current CLI/Python/source artifacts after the fixture and workflow edits. Packaging passed in 48.871 seconds, and the same fresh Windows abi3 ZIP passed 15 extracted-package API tests on each of CPython 3.13.11 and 3.10.18. The first distribution check correctly detected a documentation/archive byte mismatch and remains a failed attempt; after canonical archive regeneration, `distribution-retry1` passed all 760 source-member byte/CRC checks, installer helper equality, exclusions, relocated CLI/frozen runtime, quickstart with and without host Python, and the bound CPython consumer. The receipt is `dist/powershell-encoding-artifacts.json`. The earlier `b3bbda6` artifact receipt retains its historical scope; hosted acceptance remains pending.
-- [ ] Accept a fresh hosted run after the PowerShell fixture and CI cache changes. The prior run above remains a failed receipt.
-
-CI restores and saves its compiled Cargo cache in separate steps. A trusted
-non-PR run attempts the cache save after the workspace attempt even when a
-runtime test fails, so a cold compile can be reused. Saving a compilation cache
-does not establish runtime or release acceptance.
+- [ ] Accept `tests/powershell_argv.rs` on Windows PowerShell 5.1 and PowerShell 7 locally and in hosted CI.
 
 ## Shared environment contract
 

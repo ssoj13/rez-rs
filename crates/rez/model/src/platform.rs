@@ -727,10 +727,10 @@ fn detect_os_linux() -> String {
                 version_id = Some(val.trim_matches('"').to_string());
             }
         }
-        if let (Some(id), Some(ver)) = (id, version_id) {
-            return format!("{}-{}", id, ver);
-        } else if let Some(id) = id {
-            return id;
+        match (id, version_id) {
+            (Some(id), Some(ver)) => return format!("{}-{}", id, ver),
+            (Some(id), None) => return id,
+            (None, _) => {}
         }
     }
 
@@ -915,7 +915,7 @@ pub fn detect_image_viewer() -> Option<String> {
 
     #[cfg(target_os = "linux")]
     {
-        let viewers = vec!["xdg-open", "eog", "kview", "feh", "display"];
+        let viewers = ["xdg-open", "eog", "kview", "feh", "display"];
         viewers
             .iter()
             .find(|&&v| cmd_exists(v))
@@ -948,7 +948,7 @@ pub fn detect_terminal() -> Option<String> {
 
     #[cfg(target_os = "linux")]
     {
-        let terminals = vec!["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"];
+        let terminals = ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"];
         terminals
             .iter()
             .find(|&&t| cmd_exists(t))
@@ -971,7 +971,7 @@ pub fn logical_cores() -> usize {
 pub fn physical_cores() -> usize {
     #[cfg(target_os = "linux")]
     {
-        linux_physical_cores().unwrap_or_else(|| logical_cores())
+        linux_physical_cores().unwrap_or_else(logical_cores)
     }
 
     #[cfg(target_os = "macos")]
@@ -996,14 +996,14 @@ fn linux_physical_cores() -> Option<usize> {
     for line in content.lines() {
         if let Some(val) = line.strip_prefix("physical id") {
             phys_id = val
-                .trim_start_matches(|c: char| c == ' ' || c == '\t' || c == ':')
+                .trim_start_matches([' ', '\t', ':'])
                 .trim()
                 .parse::<u32>()
                 .ok();
         }
         if let Some(val) = line.strip_prefix("core id") {
             core_id = val
-                .trim_start_matches(|c: char| c == ' ' || c == '\t' || c == ':')
+                .trim_start_matches([' ', '\t', ':'])
                 .trim()
                 .parse::<u32>()
                 .ok();

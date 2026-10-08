@@ -22,9 +22,9 @@ python -m unittest discover -s tests -p "test_*.py"
 mdbook build docs/mdbook
 ```
 
-Windows release path acceptance uses `python ci/test_workspace.py --require-short-path`, which requires full normal-path and genuine 8.3 temporary-path campaigns and fails when the alias is unavailable.
+`python bootstrap.py ci [--python <extra-cpython>]` runs all of the above, then builds, bundles and verifies the release ZIPs in `dist/release/`; it is the single entry point used by GitHub CI on Windows, Linux and macOS (`ci.py`).
 
-Root-only Cargo tests omit moved library tests. Ignored native-builder tests require external toolchains and explicit execution. `bootstrap.py b` builds the release workspace; `bootstrap.py p` builds the release CLI and CPython bridge, staging separate CLI/source and Python distributions. Run `python ci/verify_python_api.py` against the extracted Python distribution; the raw extension belongs inside `rez/`, with its wrappers. Compilation, runtime, packaging, deployment and platform acceptance are separate gates. Record exact scopes; do not extend a historical binary result to later changes.
+Root-only Cargo tests omit moved library tests. Ignored native-builder tests require external toolchains and explicit execution. `bootstrap.py b` builds the release workspace; `bootstrap.py p` builds the release CLI and CPython bridge, staging separate CLI/source and Python distributions. `bootstrap.py release` verifies both ZIPs after extraction; the raw extension belongs inside `rez/`, with its wrappers. Compilation, runtime, packaging, deployment and platform acceptance are separate gates. Record exact scopes; do not extend a historical binary result to later changes.
 
 ## Shared contracts
 
