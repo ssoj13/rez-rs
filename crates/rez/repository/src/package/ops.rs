@@ -1397,7 +1397,8 @@ mod tests {
         assert_eq!(fs::read(foreign).unwrap(), b"keep");
     }
 
-    #[cfg(unix)]
+    // APFS/HFS+ require UTF-8 file names (EILSEQ), so macOS cannot hold these payloads.
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn canonical_copy_keeps_native_non_utf8_payload_paths() {
         use std::os::unix::ffi::OsStringExt;

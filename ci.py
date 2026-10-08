@@ -60,7 +60,7 @@ def check_sources() -> None:
     run(["cargo", "clippy", "--locked", "--workspace", "--release", "--all-targets",
          "--", "-D", "warnings"])
     # Pip tests otherwise look up `python`, which Linux distributions name `python3`.
-    run(["cargo", "test", "--locked", "--workspace", "--release"],
+    run(["cargo", "test", "--locked", "--workspace", "--release", "--no-fail-fast"],
         dict(os.environ, REZ_TEST_PIP_PYTHON=sys.executable))
     run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"])
     run(["mdbook", "build", "docs/mdbook"])
