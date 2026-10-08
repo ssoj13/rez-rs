@@ -69,6 +69,15 @@ jobs:
           test -n "$TOKEN" || { echo 'DEPENDENCIES_TOKEN secret is not set'; exit 1; }
           git config --global url."https://x-access-token:${TOKEN}@github.com/ssoj13/".insteadOf "ssh://git@github.com/ssoj13/"
           echo CARGO_NET_GIT_FETCH_WITH_CLI=true >> "$GITHUB_ENV"
+          # Name every repository the token cannot read before Cargo hides it in retries.
+          denied=()
+          for repo in nodes-rs box-rs wgpu-widgets-rs graph-layout-rs; do
+            git ls-remote --heads "ssh://git@github.com/ssoj13/${repo}.git" > /dev/null 2>&1 || denied+=("$repo")
+          done
+          if (( ${#denied[@]} )); then
+            echo "::error::DEPENDENCIES_TOKEN cannot read: ${denied[*]}"
+            exit 1
+          fi
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           key: ${{ matrix.target }}
