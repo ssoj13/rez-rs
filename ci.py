@@ -53,6 +53,9 @@ def isolated_env(home: Path) -> dict[str, str]:
 
 
 def check_sources() -> None:
+    # Pip builder tests run this interpreter's pip; fail here rather than mid-suite.
+    if subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True).returncode:
+        raise RuntimeError(f"pip is required for the Pip builder tests: {sys.executable} -m pip")
     run(["cargo", "fmt", "--all", "--", "--check"])
     run(["cargo", "clippy", "--locked", "--workspace", "--release", "--all-targets",
          "--", "-D", "warnings"])
