@@ -23,7 +23,7 @@ crates/rustpython*/          vendored runtime patches and their separate tests
 tests/                      CLI/process/native integration tests
 examples/                   package recipes for build adapters
 docs/mdbook/                user and developer book
-docs/plans/                 internal work queue and historical receipts
+docs/plans/                 current compatibility work queue
 packaging/                  canonical staged-package installer source
 ```
 
@@ -47,13 +47,32 @@ Use a crate filter for a smaller test scope:
 cargo test --locked -p version
 cargo test --locked -p resolve solver
 cargo test --locked -p model config
-cargo test --locked --test cli
+cargo test --locked --test cli_integration
 cargo test --locked --workspace --doc
 ```
 
 Root-only tests do not include moved library targets. Selecting `--workspace` also selects the GUI crate. Vendored runtime patches are excluded workspace members and keep tests under their own manifests. Ignored native builder scenarios need their external toolchains and separate execution.
 
 For interactive development, `cargo check --locked --workspace` avoids linking. Generate API docs with `cargo doc --locked --workspace --no-deps`, or the book with `mdbook build docs/mdbook`.
+
+## GitHub CI and releases
+
+[The workflow](https://github.com/ssoj13/rez-rs/blob/main/.github/workflows/ci.yml) runs on pushes, pull requests, and manual dispatch. Source checks run on Ubuntu; the release binary and runtime acceptance run on Windows x86_64. Ordinary workspace tests exclude explicitly ignored native scenarios, and this workflow does not establish GUI interaction or Linux/macOS runtime acceptance.
+
+The default GUI currently needs four private repositories: `ssoj13/nodes-rs`, `ssoj13/box-rs`, `ssoj13/wgpu-widgets-rs`, and `ssoj13/graph-layout-rs`. Add a fine-grained token with **Contents: Read** access to those repositories as the Actions secret `DEPENDENCIES_TOKEN` in rez-rs. The dependency-fetch step translates SSH URLs to HTTPS without changing the lockfile. Its temporary credential helper is removed before build and test steps; no token is written to repository files or Cargo configuration. If those dependencies become publicly readable, the same fetch step works without the secret.
+
+Fork pull requests run formatting, Python helper tests, and the book build. Full Windows builds run on pushes, manual dispatch, and pull requests from this repository.
+
+The Windows job builds through `python bootstrap.py p --force`, then runs locked release workspace tests and strict Clippy. `python ci/verify_dist.py --require-python` checks source archive membership, bytes and CRCs, canonical installer helpers, binary equality, a relocated frozen interpreter, generated configuration, quickstart with no host Python on PATH, and a bound installed Python consumer.
+
+Download the `windows-x86_64` artifact from a successful Actions run. It contains the verified `rez.exe` from `dist/rez_rs/<version>`, `rez.exe.sha256`, and `verification.json`. Verify the executable in PowerShell:
+
+```powershell
+(Get-FileHash ./rez.exe -Algorithm SHA256).Hash
+Get-Content ./rez.exe.sha256
+```
+
+For a release, update the Cargo package version and lockfile, commit the change, and push a matching tag, such as `v0.1.0`. After all gates pass, the release job publishes the executable, checksum, and receipt. A tag such as `v0.1.0-alpha.1` requires the same prerelease version in Cargo and creates a GitHub prerelease.
 
 ## Add a CLI command
 

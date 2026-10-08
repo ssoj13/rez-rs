@@ -10,6 +10,15 @@ RustPython is pinned to 0.6.0. Stdlib and SRE use crates.io; four active local p
 
 The book lives in `docs/mdbook`; generated HTML is excluded from source packages. Current source and installer changes require updated source-closure verification. These scopes do not establish full Rez parity, GUI runtime, Linux/macOS acceptance, or current host activation.
 
+## GitHub CI and release work
+
+- [x] Add push/PR/manual checks and a default-feature Windows x86_64 build through the canonical dist staging command. Version-matching `v*` tags publish the verified `rez.exe`, checksum, and receipt.
+- [x] Validate the workflow with actionlint 1.7.12 and pass 25 Python helper tests, including credential-host scoping and cleanup after a failed fetch.
+- [x] Confirm a relocated Windows executable generates the commented default config and runs frozen Python with no host Python on PATH. Quickstart creates platform/arch/os/rez definitions; the unsupported legacy rezgui entry was removed from its requested list.
+- [x] Verify the staged source archive (739 members, exact bytes and CRCs), canonical helper equality, frozen runtime, no-Python quickstart, bound Rez execution, and installed CPython execution. The native Rez binding no longer declares an external Python dependency.
+- [ ] Complete the final-source release workspace test and strict Clippy campaign; the initial workspace campaign passed 1,506 test/doc-test executions with seven ignored scenarios, before the final binder changes and new regression target.
+- [ ] Accept a hosted GitHub run. Four private GUI repositories require the Actions secret `DEPENDENCIES_TOKEN` with Contents: Read access, or public readability. Fork PRs run source checks only until that dependency boundary is removed.
+
 ## Next execution order
 
 - [x] P0: current RustPython 0.6.0 workspace compiler/test/strict-lint gates pass, including moved library tests and explicitly executed native/ignored tests. Preserve the earlier failed campaigns and composite receipts as historical evidence; current single-campaign and native scopes are recorded above.

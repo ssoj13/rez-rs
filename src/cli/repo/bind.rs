@@ -143,7 +143,6 @@ pub fn run(args: &BindArgs) -> Result<()> {
             "os",
             "python",
             "rez",
-            "rezgui",
             "setuptools",
             "pip",
         ];

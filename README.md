@@ -35,6 +35,14 @@ python bootstrap.py b
 
 Build and runtime receipts currently cover Windows. Native Linux/macOS and GUI acceptance have separate open items in [Plan30](docs/plans/plan30.md).
 
+## Download the Windows executable
+
+The [CI and release workflow](.github/workflows/ci.yml) checks formatting, Python helpers, documentation, release workspace tests, and strict Clippy. It stages the default-feature Windows x86_64 executable through `bootstrap.py p` and verifies the copied binary and source archive before upload.
+
+Successful trusted runs provide a `windows-x86_64` artifact containing `rez.exe`, its SHA-256 checksum, and a verification receipt. Pushing a `v<version>` tag matching `Cargo.toml` publishes those assets as a GitHub release; tags containing a prerelease suffix create a prerelease. Fork pull requests run source checks only while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
+
+The executable carries its interpreter, standard library, configuration template, and standard binders. No companion Python source files are needed for `rez --write-config` or `rez bind --quickstart`. Quickstart binds software already installed on the host; Python, pip, and setuptools can be skipped when unavailable. A bound CPython environment still depends on its installed base Python.
+
 ## Install CLI entry points
 
 Deploy the executable and its aliases into a directory on your PATH:

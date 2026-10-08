@@ -193,7 +193,6 @@ pub fn detect_setuptools() -> Option<BindInfo> {
 pub fn detect_rez() -> BindInfo {
     let mut info = BindInfo::new("rez", env!("CARGO_PKG_VERSION"));
     info.description = format!("rez-rs {}", env!("CARGO_PKG_VERSION"));
-    info.requires = vec!["python-3.8+<3.14".to_string()];
     info.tools = vec!["rez".to_string()];
     info.commands = Some("env.PATH.append('{root}/bin')".to_string());
     info.variants = vec![SYSTEM.variant()];

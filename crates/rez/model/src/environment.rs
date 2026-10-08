@@ -415,7 +415,7 @@ mod tests {
             ("REZ_CONFIG_FILE", "/config/rez.py"),
             ("PATH", "/polluted/bin"),
             ("PYTHONPATH", "/polluted/python"),
-            ("MSG_MACHINE", "private"),
+            ("CUSTOM_MACHINE", "private"),
         ]);
         for platform in [Platform::Linux, Platform::MacOS] {
             let env = clean_environ(platform, &parent, &[]);
@@ -443,7 +443,7 @@ mod tests {
                 assert_eq!(env[key], parent[key]);
             }
             assert!(!env.contains_key("PYTHONPATH"));
-            assert!(!env.contains_key("MSG_MACHINE"));
+            assert!(!env.contains_key("CUSTOM_MACHINE"));
         }
     }
 
@@ -454,16 +454,16 @@ mod tests {
             ("HOME", "/users/alice"),
             ("HOSTNAME", "station"),
             ("PATH", ""),
-            ("MSG_MACHINE", "private"),
+            ("CUSTOM_MACHINE", "private"),
             ("CUSTOM", ""),
             ("PYTHONPATH", "polluted"),
         ]);
-        let allowlist = ["PATH", "MSG_MACHINE", "CUSTOM", "ABSENT"].map(str::to_owned);
+        let allowlist = ["PATH", "CUSTOM_MACHINE", "CUSTOM", "ABSENT"].map(str::to_owned);
         for platform in [Platform::Linux, Platform::MacOS, Platform::Windows] {
             let env = clean_environ(platform, &parent, &allowlist);
             assert_eq!(env["PATH"], "");
             assert_eq!(env["CUSTOM"], "");
-            assert_eq!(env["MSG_MACHINE"], "private");
+            assert_eq!(env["CUSTOM_MACHINE"], "private");
             assert!(!env.contains_key("ABSENT"));
             assert!(!env.contains_key("PYTHONPATH"));
         }
@@ -478,19 +478,19 @@ mod tests {
             ("uSeRpRoFiLe", r"D:\Users\alice"),
             ("cOmPuTeRnAmE", "station"),
             ("rez_config_file", r"E:\rez.py"),
-            ("msg_machine", "private"),
+            ("custom_machine", "private"),
             ("PythonPath", "polluted"),
         ]);
         let env = clean_environ(
             Platform::Windows,
             &parent,
-            &["Path".to_owned(), "MSG_MACHINE".to_owned()],
+            &["Path".to_owned(), "CUSTOM_MACHINE".to_owned()],
         );
         assert_eq!(env["PATH"], r"E:\Tools");
         assert_eq!(env["SYSTEMROOT"], r"D:\OS");
         assert_eq!(env["USERNAME"], "alice");
         assert_eq!(env["REZ_CONFIG_FILE"], r"E:\rez.py");
-        assert_eq!(env["MSG_MACHINE"], "private");
+        assert_eq!(env["CUSTOM_MACHINE"], "private");
         assert!(!env.contains_key("PYTHONPATH"));
         assert!(env.keys().all(|key| *key == key.to_ascii_uppercase()));
         assert_eq!(
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn baseline_fallbacks_do_not_copy_application_state() {
-        let parent = parent(&[("PYTHONPATH", "polluted"), ("MSG_MACHINE", "private")]);
+        let parent = parent(&[("PYTHONPATH", "polluted"), ("CUSTOM_MACHINE", "private")]);
         let windows = platform_environ(Platform::Windows, &parent);
         assert_eq!(windows["SYSTEMROOT"], r"C:\WINDOWS");
         assert_eq!(windows["COMSPEC"], r"C:\WINDOWS\System32\cmd.exe");
@@ -517,7 +517,7 @@ mod tests {
         for platform in [Platform::Windows, Platform::Linux, Platform::MacOS] {
             let env = clean_environ(platform, &parent, &[]);
             assert!(!env.contains_key("PYTHONPATH"));
-            assert!(!env.contains_key("MSG_MACHINE"));
+            assert!(!env.contains_key("CUSTOM_MACHINE"));
             if platform != Platform::Windows {
                 assert_eq!(env["SHELL"], "/bin/sh");
                 assert_eq!(env["TMPDIR"], "/tmp");

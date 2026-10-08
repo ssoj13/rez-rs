@@ -2,6 +2,14 @@
 
 rez-rs is a development preview. Validate the [compatibility requirements](https://github.com/ssoj13/rez-rs/blob/main/docs/plans/plan30.md) of your packages before replacing an existing Rez installation.
 
+## Download the Windows executable
+
+Download the `windows-x86_64` artifact from a successful [Actions run](https://github.com/ssoj13/rez-rs/actions), or `rez.exe` from a [tagged release](https://github.com/ssoj13/rez-rs/releases). Both include a SHA-256 checksum and a verification receipt. CI currently builds Windows x86_64 with the default GUI feature.
+
+Place `rez.exe` in a directory on PATH. Its Python interpreter, standard library, default configuration template, and standard binders are embedded; no source checkout or companion Python files are needed. Generate the commented user configuration with `rez --write-config`.
+
+`rez bind --quickstart` creates definitions for detected software. Platform, architecture, OS, and rez bindings work without a host Python. Binding Python creates a virtual environment using installed CPython; that environment still needs its base Python installation. Missing optional software is skipped. The embedded RustPython interpreter does not install CPython, pip, or setuptools on the host.
+
 ## Build from source
 
 Use Rust 1.95 or newer, Git, and a native compiler/linker. The bootstrap scripts require Python 3.10 or newer; reading Cargo install configuration requires Python 3.11 or newer. Native dependencies may need CMake.
@@ -92,7 +100,7 @@ cargo test --locked --workspace --release
 cargo test --locked -p version
 cargo test --locked -p resolve
 cargo test --locked -p model
-cargo test --locked --test cli
+cargo test --locked --test cli_integration
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
