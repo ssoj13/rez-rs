@@ -934,7 +934,7 @@ pub fn detect_terminal() -> Option<String> {
 
     #[cfg(target_os = "macos")]
     {
-        return Some("Terminal.app".to_string());
+        Some("Terminal.app".to_string())
     }
 
     #[cfg(target_os = "windows")]
@@ -976,7 +976,7 @@ pub fn physical_cores() -> usize {
 
     #[cfg(target_os = "macos")]
     {
-        macos_physical_cores().unwrap_or_else(|| logical_cores())
+        macos_physical_cores().unwrap_or_else(logical_cores)
     }
 
     #[cfg(target_os = "windows")]
