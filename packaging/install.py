@@ -227,8 +227,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--repository-root",
-        type=Path, required=True,
-        help="Existing repository root in which to install tool/rez_rs/<version>.",
+        type=Path, default=(os.environ.get("REZ_REPO_PATH") or "").strip() or None,
+        help="Repository root for tool/rez_rs/<version>; defaults to REZ_REPO_PATH.",
     )
     parser.add_argument(
         "--rez-root", type=Path,
@@ -239,6 +239,8 @@ def main() -> int:
         help="Staged versions directory; defaults to payload/ or the adjacent rez_rs/ family.",
     )
     args = parser.parse_args()
+    if args.repository_root is None:
+        parser.error("Pass --repository-root or set REZ_REPO_PATH.")
 
     try:
         rez_value = args.rez_root
@@ -248,7 +250,7 @@ def main() -> int:
                 parser.error(f"Rez root does not exist or is not a directory: {rez_root}")
             install_host(None, rez_root, recover_only=True)
 
-        repository_root = args.repository_root.expanduser().resolve()
+        repository_root = Path(os.path.expandvars(str(args.repository_root))).expanduser().resolve()
         if not repository_root.is_dir():
             parser.error(f"Repository root does not exist or is not a directory: {repository_root}")
 

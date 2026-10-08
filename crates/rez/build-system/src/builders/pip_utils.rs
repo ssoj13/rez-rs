@@ -20,7 +20,15 @@ pub(crate) fn command(program: &str, ctx: &super::BuildContext) -> Result<std::p
                 ))
             })?;
     let mut command = std::process::Command::new(executable);
-    command.envs(&ctx.env_vars);
+    let mut environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
+    environment.extend(ctx.env_vars.clone());
+    let environment = crate::config::CONFIG.pip_environment(&environment);
+    command.envs(environment);
+    if crate::config::CONFIG.offline {
+        command
+            .env_remove("PIP_INDEX_URL")
+            .env_remove("PIP_EXTRA_INDEX_URL");
+    }
     Ok(command)
 }
 
@@ -300,7 +308,7 @@ impl SourceMap {
             .current_dir(&ctx.source_path)
             .args([
                 "-c",
-                PIP_SOURCE_BOOTSTRAP,
+                &pip_source_bootstrap(),
                 &selected_runner,
                 PIP_SOURCE_PYTHON,
             ])
@@ -323,7 +331,7 @@ impl SourceMap {
         }
         let mut probe = command(interpreter, ctx)?;
         probe.current_dir(&ctx.source_path).env("_PIP_RUNNING_IN_SUBPROCESS", "1")
-            .args(["-c", PIP_SOURCE_BOOTSTRAP, runner,
+            .args(["-c", &pip_source_bootstrap(), runner,
                 "import json,sys; from pip._internal.utils.misc import get_pip_version; print(json.dumps([sys.executable,get_pip_version()]))"]);
         let output = super::run_cmd(&mut probe, "effective pip interpreter identity")?;
         let values: Vec<String> = serde_json::from_slice(&output.stdout).map_err(|error| {
@@ -345,7 +353,7 @@ impl SourceMap {
             process
                 .current_dir(&ctx.source_path)
                 .env("_PIP_RUNNING_IN_SUBPROCESS", "1")
-                .args(["-c", PIP_SOURCE_BOOTSTRAP, runner, PIP_SOURCE_GRAPH])
+                .args(["-c", &pip_source_bootstrap(), runner, PIP_SOURCE_GRAPH])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -429,7 +437,7 @@ impl SourceMap {
             .env("_PIP_RUNNING_IN_SUBPROCESS", "1")
             .args([
                 "-c",
-                PIP_SOURCE_BOOTSTRAP,
+                &pip_source_bootstrap(),
                 runner,
                 PIP_SOURCE_RUN,
                 identity,
@@ -520,7 +528,13 @@ print(json.dumps({'executable': executable, 'runner': get_runnable_pip()}))
 
 // Execute the actual selected runner's compatibility checks and import policy.
 // Intercept only its final module entry, after PipImportRedirectingFinder exists.
-const PIP_SOURCE_BOOTSTRAP: &str = r###"import runpy, sys
+pub(crate) const PIP_OFFLINE_GUARD: &str = include_str!("pip_offline.py");
+
+fn pip_source_bootstrap() -> String {
+    format!("{PIP_OFFLINE_GUARD}\n{PIP_SOURCE_BOOTSTRAP}")
+}
+
+const PIP_SOURCE_BOOTSTRAP: &str = r###"import os, runpy, sys
 runner = sys.argv.pop(1)
 script = sys.argv.pop(1)
 original = runpy.run_module
@@ -529,6 +543,7 @@ def module(name, *args, **kwargs):
     global entered
     if name == 'pip':
         entered = True
+        _rez_apply_pip_offline()
         exec(compile(script, '<rez-pip-source>', 'exec'), {'__name__': '__main__'})
         return {}
     return original(name, *args, **kwargs)
@@ -568,6 +583,8 @@ def requirement(value, editable=False):
     link = parts.link
     if link is None and parts.requirement is not None and parts.requirement.url:
         link = Link(parts.requirement.url)
+    if os.environ.get('REZ_OFFLINE') == 'true' and link is not None and link.scheme != 'file':
+        raise RuntimeError('REZ_OFFLINE=true: remote pip sources are disabled: ' + str(link))
     if link is None or link.scheme != 'file' or not os.path.isdir(link.file_path):
         return value
     original = os.path.abspath(link.file_path)
@@ -743,6 +760,27 @@ pub(crate) fn relocate(payload: &Path, source: &Path, original: &Path) -> Result
             from.as_str().trim_end_matches('/').into(),
             to.as_str().trim_end_matches('/').into(),
         ));
+    }
+    // Windows canonicalization expands existing 8.3 components and may add a
+    // verbatim prefix. Pip can record either spelling for the same staged tree.
+    // Retain the caller's original checkout spelling as the relocation target.
+    if let Ok(canonical) = fs::canonicalize(&source) {
+        let canonical = canonical.to_string_lossy().into_owned();
+        paths.push((canonical.clone(), original.clone()));
+        paths.push((normal(&canonical), normal(&original)));
+        paths.push((
+            normal(&canonical).replace('\\', "/"),
+            normal(&original).replace('\\', "/"),
+        ));
+        if let (Ok(from), Ok(to)) = (
+            url::Url::from_directory_path(normal(&canonical)),
+            url::Url::from_directory_path(normal(&original)),
+        ) {
+            paths.push((
+                from.as_str().trim_end_matches('/').into(),
+                to.as_str().trim_end_matches('/').into(),
+            ));
+        }
     }
     let mut replacements = Vec::new();
     for (from, to) in paths {

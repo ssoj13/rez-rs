@@ -69,9 +69,26 @@ class VersionTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
+    def test_invalid_offline_policy_rejects_native_module_import(self):
+        import subprocess
+        import sys
+        environment = dict(os.environ, REZ_OFFLINE="invalid")
+        package_root = str(Path(rs.__file__).resolve().parent.parent)
+        script = f"import sys; sys.path.insert(0, {package_root!r}); import rez"
+        result = subprocess.run([sys.executable, "-I", "-c", script], env=environment,
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("REZ_OFFLINE", result.stderr)
+
     def test_read_only_configuration_does_not_silently_shadow_native_settings(self):
         from rez.config import config
-        self.assertEqual(config.resolve_caching, rs.config_snapshot()["resolve_caching"])
+        snapshot = rs.config_snapshot()
+        self.assertEqual(config.resolve_caching, snapshot["resolve_caching"])
+        for name in ("sources_path", "wheel_cache_path", "user_path", "offline", "repo_path", "log_level"):
+            self.assertIn(name, snapshot)
+            self.assertEqual(getattr(config, name), snapshot[name])
+        self.assertIsInstance(config.offline, bool)
         with self.assertRaises(NotImplementedError):
             config.packages_path = ["other"]
         with self.assertRaises(NotImplementedError):
@@ -91,8 +108,8 @@ class PackageContextTests(unittest.TestCase):
 variants = [['dependency-1']]
 custom_value = 'retained'
 def commands():
-    env.REZRS_ACCEPTANCE.set('works')
-    env.REZRS_ROOT.set('{root}')
+    env.REZ_TEST_ACCEPTANCE.set('works')
+    env.REZ_TEST_SELECTED_PATH.set('{root}')
     env.PATH.prepend('{root}/bin')
 """)
 
@@ -144,10 +161,10 @@ def commands():
         context = self.context()
         selected = context.get_resolved_package("application")
         environ = context.get_environ({"PATH": "original", "CUSTOM_PARENT": "kept"})
-        self.assertEqual(environ["REZRS_ACCEPTANCE"], "works")
-        self.assertEqual(environ["REZRS_ROOT"].replace("\\", "/"), selected.root.replace("\\", "/"))
+        self.assertEqual(environ["REZ_TEST_ACCEPTANCE"], "works")
+        self.assertEqual(environ["REZ_TEST_SELECTED_PATH"].replace("\\", "/"), selected.root.replace("\\", "/"))
         self.assertTrue(environ["PATH"].replace("\\", "/").startswith(selected.root.replace("\\", "/") + "/bin"))
-        self.assertEqual(context.get_environ()["REZRS_ACCEPTANCE"], "works")
+        self.assertEqual(context.get_environ()["REZ_TEST_ACCEPTANCE"], "works")
 
     def test_context_rxt_roundtrip_is_compatible_with_canonical_handles(self):
         context = self.context()
@@ -156,7 +173,7 @@ def commands():
         loaded = ResolvedContext.load(target)
         self.assertTrue(loaded.success)
         self.assertEqual(loaded.to_dict()["resolved_packages"], context.to_dict()["resolved_packages"])
-        self.assertEqual(loaded.get_environ()["REZRS_ACCEPTANCE"], "works")
+        self.assertEqual(loaded.get_environ()["REZ_TEST_ACCEPTANCE"], "works")
         self.assertEqual(loaded.get_resolved_package("application").index, 0)
 
     def test_repository_priority_is_retained_in_context_handles(self):

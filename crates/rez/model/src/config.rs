@@ -122,6 +122,20 @@ pub struct ColorStyle {
 /// All fields have sensible defaults matching Python rez's rezconfig.py.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RezConfig {
+    // -- Recipe environment (rez-rs additions) --
+    #[serde(default)]
+    pub sources_path: Option<String>,
+    #[serde(default)]
+    pub wheel_cache_path: Option<String>,
+    #[serde(default)]
+    pub user_path: Option<String>,
+    #[serde(default)]
+    pub repo_path: Option<String>,
+    #[serde(default)]
+    pub offline: bool,
+    #[serde(default, deserialize_with = "deserialize_log_level")]
+    pub log_level: Option<String>,
+
     // -- Paths --
     pub packages_path: Vec<String>,
     pub local_packages_path: String,
@@ -306,6 +320,12 @@ pub struct RezConfig {
 impl Default for RezConfig {
     fn default() -> Self {
         Self {
+            sources_path: None,
+            wheel_cache_path: None,
+            user_path: None,
+            repo_path: None,
+            offline: false,
+            log_level: None,
             // Paths
             packages_path: vec![
                 "~/.rez/packages/local/int".into(),
@@ -576,6 +596,16 @@ impl Default for RezConfig {
 // ---------------------------------------------------------------------------
 
 static CONFIG_SEED: OnceLock<RezConfig> = OnceLock::new();
+static CONFIG_LOAD_ERRORS: OnceLock<String> = OnceLock::new();
+
+/// Fail before executing package code or acquisition after invalid global settings.
+pub fn ensure_valid() -> Result<(), crate::errors::RezError> {
+    LazyLock::force(&CONFIG);
+    match CONFIG_LOAD_ERRORS.get() {
+        Some(errors) => Err(crate::errors::RezError::Config(errors.clone())),
+        None => Ok(()),
+    }
+}
 static CONFIG_INITIALIZATION: Mutex<bool> = Mutex::new(false);
 
 /// Supply a typed worker snapshot before any interpreter or global configuration access.
@@ -608,22 +638,27 @@ pub static CONFIG: LazyLock<RezConfig> = LazyLock::new(|| {
     drop(initialized);
     log_info!("config", "Initializing config");
     let mut config = RezConfig::default();
+    let mut errors = Vec::new();
 
     // Load from config files
     if let Err(error) = config.load_config_files() {
-        eprintln!("{error}");
+        errors.push(error.to_string());
     }
 
     // Apply environment variable overrides
     log_trace!("config", "Applying REZ_* env overrides");
     if let Err(error) = config.apply_env_overrides(None) {
-        eprintln!("{error}");
+        errors.push(error.to_string());
     }
 
     // Expand {system.*} and ${ENV} variables in all config values
     log_trace!("config", "Expanding system/env variables");
     if let Err(error) = config.expand_all_values() {
-        eprintln!("{error}");
+        errors.push(error.to_string());
+    }
+
+    if !errors.is_empty() {
+        let _ = CONFIG_LOAD_ERRORS.set(errors.join("\n"));
     }
 
     log_info!(
@@ -635,6 +670,70 @@ pub static CONFIG: LazyLock<RezConfig> = LazyLock::new(|| {
 });
 
 impl RezConfig {
+    /// Configured recipe controls exported through the shared Rex/build environment.
+    /// Publication targets remain separate from the repository lookup list.
+    pub fn recipe_environment(&self) -> HashMap<String, String> {
+        let mut values = HashMap::new();
+        for (name, path) in [
+            ("REZ_SOURCES_PATH", &self.sources_path),
+            ("REZ_WHEEL_CACHE_PATH", &self.wheel_cache_path),
+            ("REZ_USER_PATH", &self.user_path),
+            ("REZ_REPO_PATH", &self.repo_path),
+        ] {
+            if let Some(path) = path.as_ref().filter(|path| !path.trim().is_empty()) {
+                values.insert(name.to_owned(), Self::expand_path(path).to_string());
+            }
+        }
+        values.insert("REZ_OFFLINE".to_owned(), self.offline.to_string());
+        if let Some(level) = &self.log_level {
+            values.insert("REZ_LOG_LEVEL".to_owned(), level.to_ascii_uppercase());
+        }
+        values
+    }
+
+    /// Pip keeps an explicit find-links setting; configured local wheels are a fallback.
+    pub fn pip_environment(&self, parent: &HashMap<String, String>) -> HashMap<String, String> {
+        let mut environment = parent.clone();
+        environment.extend(self.recipe_environment());
+        if !environment.contains_key("PIP_FIND_LINKS") {
+            let wheels = self
+                .wheel_cache_path
+                .as_ref()
+                .map(|path| Self::expand_path(path).to_os())
+                .or_else(|| {
+                    self.sources_path
+                        .as_ref()
+                        .map(|path| Self::expand_path(path).to_os().join("wheels"))
+                });
+            if let Some(wheels) = wheels {
+                environment.insert(
+                    "PIP_FIND_LINKS".into(),
+                    wheels.to_string_lossy().into_owned(),
+                );
+            }
+        }
+        if self.offline {
+            environment.insert("PIP_NO_INDEX".into(), "true".into());
+            environment.insert("PIP_DISABLE_PIP_VERSION_CHECK".into(), "true".into());
+            environment.remove("PIP_INDEX_URL");
+            environment.remove("PIP_EXTRA_INDEX_URL");
+        }
+        environment
+    }
+
+    /// Variables retained by generated build launchers.
+    pub fn is_recipe_environment_variable(name: &str) -> bool {
+        matches!(
+            name,
+            "REZ_SOURCES_PATH"
+                | "REZ_WHEEL_CACHE_PATH"
+                | "REZ_USER_PATH"
+                | "REZ_REPO_PATH"
+                | "REZ_OFFLINE"
+                | "REZ_LOG_LEVEL"
+        ) || name.starts_with("REZ_PBS_")
+    }
+
     /// Serialize default config to TOML string (for --default-config).
     pub fn default_config_toml() -> Result<String, crate::errors::RezError> {
         let config = Self::default();
@@ -688,6 +787,20 @@ impl RezConfig {
 # Generated by: rez --write-config
 # See: https://github.com/AcademySoftwareFoundation/rez
 
+# Recipe archive mirror (REZ_SOURCES_PATH); one directory, not a search list.
+sources_path = None
+# Python wheel cache (REZ_WHEEL_CACHE_PATH), retaining explicit PIP_FIND_LINKS.
+wheel_cache_path = None
+# User data root (REZ_USER_PATH); recipes place tool caches under cache/<tool>.
+user_path = None
+# Common publication root (REZ_REPO_PATH); CLI and per-builder targets take priority.
+# This does not replace packages_path, which controls package lookup.
+repo_path = None
+# Managed downloads/installers honor REZ_OFFLINE=true/false; not a network sandbox.
+offline = False
+# Optional REZ_LOG_LEVEL: ERROR, WARNING, INFO, DEBUG, TRACE, or OFF.
+log_level = None
+
 # Package repository paths, searched in order. First match wins.
 packages_path = {packages_path}
 # Where rez-build installs packages locally.
@@ -699,7 +812,7 @@ rez_install_categories = {rez_install_categories}
 # Send `rez build -i` to the release repository when enabled, local_packages_path otherwise.
 # `rez release` always publishes to the release repository.
 rez_install_location = {rez_install_location}
-# Per-builder release paths. When set, releases go here; else use release_packages_path.
+# Per-builder release paths, then repo_path, then release_packages_path.
 release_bind_path = "~/.rez/packages/bind"
 release_pip_path = "~/.rez/packages/pip"
 release_build_path = None
@@ -976,6 +1089,8 @@ debug_old_commands = {debug_old_commands}
         let base = explicit_path.map(Path::to_path_buf).unwrap_or_else(|| {
             if release || self.rez_install_location {
                 self.expanded_release_path_for_build().to_os()
+            } else if let Some(path) = &self.repo_path {
+                Self::expand_path(path).to_os()
             } else {
                 self.expanded_local_packages_path().to_os()
             }
@@ -993,26 +1108,29 @@ debug_old_commands = {debug_old_commands}
         Self::expand_path(&self.release_packages_path)
     }
 
-    /// Release path for bind: release_bind_path if set, else release_packages_path.
+    /// Release path for bind: release_bind_path, then repo_path, then release_packages_path.
     pub fn expanded_release_path_for_bind(&self) -> crate::rez_path::RezPath {
         self.release_bind_path
             .as_ref()
+            .or(self.repo_path.as_ref())
             .map(|p| Self::expand_path(p))
             .unwrap_or_else(|| self.expanded_release_packages_path())
     }
 
-    /// Release path for pip: release_pip_path if set, else release_packages_path.
+    /// Release path for pip: release_pip_path, then repo_path, then release_packages_path.
     pub fn expanded_release_path_for_pip(&self) -> crate::rez_path::RezPath {
         self.release_pip_path
             .as_ref()
+            .or(self.repo_path.as_ref())
             .map(|p| Self::expand_path(p))
             .unwrap_or_else(|| self.expanded_release_packages_path())
     }
 
-    /// Release path for build/release: release_build_path if set, else release_packages_path.
+    /// Release path for build/release: release_build_path, then repo_path, then release_packages_path.
     pub fn expanded_release_path_for_build(&self) -> crate::rez_path::RezPath {
         self.release_build_path
             .as_ref()
+            .or(self.repo_path.as_ref())
             .map(|p| Self::expand_path(p))
             .unwrap_or_else(|| self.expanded_release_packages_path())
     }
@@ -1585,11 +1703,39 @@ fn config_environment_name(key: &str) -> String {
     }
 }
 
+fn deserialize_log_level<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    let value = Option::<String>::deserialize(deserializer)?;
+    value
+        .map(|value| {
+            let value = value.trim().to_ascii_uppercase();
+            if matches!(
+                value.as_str(),
+                "ERROR" | "WARNING" | "INFO" | "DEBUG" | "TRACE" | "OFF"
+            ) {
+                Ok(value)
+            } else {
+                Err(serde::de::Error::custom(
+                    "log_level must be ERROR, WARNING, INFO, DEBUG, TRACE, or OFF",
+                ))
+            }
+        })
+        .transpose()
+}
+
 fn convert_env_value(
     val: &str,
     current: &serde_json::Value,
     key: Option<&str>,
 ) -> std::result::Result<serde_json::Value, String> {
+    if key == Some("offline") {
+        return match val.trim().to_ascii_lowercase().as_str() {
+            "true" => Ok(serde_json::Value::Bool(true)),
+            "false" => Ok(serde_json::Value::Bool(false)),
+            _ => Err("expected true or false".into()),
+        };
+    }
     if key == Some("build_thread_count") {
         return Ok(val
             .trim()
@@ -1646,6 +1792,128 @@ fn convert_env_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recipe_environment_overrides_are_typed_and_keep_lookup_paths() {
+        let mut config = RezConfig::default();
+        let lookup = config.packages_path.clone();
+        config
+            .apply_env_overrides(Some(&HashMap::from([
+                ("REZ_SOURCES_PATH".into(), "/archive mirror".into()),
+                ("REZ_WHEEL_CACHE_PATH".into(), "/wheels".into()),
+                ("REZ_USER_PATH".into(), "/user".into()),
+                ("REZ_REPO_PATH".into(), "/publish".into()),
+                ("REZ_OFFLINE".into(), "true".into()),
+                ("REZ_LOG_LEVEL".into(), "debug".into()),
+            ])))
+            .unwrap();
+        assert_eq!(
+            config.recipe_environment()["REZ_SOURCES_PATH"],
+            "/archive mirror"
+        );
+        assert_eq!(config.recipe_environment()["REZ_OFFLINE"], "true");
+        assert_eq!(config.recipe_environment()["REZ_LOG_LEVEL"], "DEBUG");
+        assert_eq!(config.packages_path, lookup);
+        for value in ["1", "yes", "not-a-bool"] {
+            assert!(config
+                .apply_env_overrides(Some(&HashMap::from(
+                    [("REZ_OFFLINE".into(), value.into()),]
+                )))
+                .unwrap_err()
+                .to_string()
+                .contains("expected true or false"));
+        }
+        assert!(config
+            .apply_env_overrides(Some(&HashMap::from([(
+                "REZ_LOG_LEVEL".into(),
+                "verbose".into()
+            ),])))
+            .is_err());
+        config
+            .apply_env_overrides(Some(&HashMap::from([(
+                "REZ_OFFLINE".into(),
+                "false".into(),
+            )])))
+            .unwrap();
+        assert_eq!(config.recipe_environment()["REZ_OFFLINE"], "false");
+    }
+
+    #[test]
+    fn offline_pip_preserves_find_links_and_clears_indexes() {
+        let config = RezConfig {
+            sources_path: Some("/mirror".into()),
+            wheel_cache_path: Some("/cache".into()),
+            offline: true,
+            ..RezConfig::default()
+        };
+        let parent = HashMap::from([
+            ("PIP_FIND_LINKS".into(), "/explicit".into()),
+            (
+                "PIP_INDEX_URL".into(),
+                "https://example.invalid/simple".into(),
+            ),
+            (
+                "PIP_EXTRA_INDEX_URL".into(),
+                "https://example.invalid/extra".into(),
+            ),
+        ]);
+        let environment = config.pip_environment(&parent);
+        assert_eq!(environment["PIP_FIND_LINKS"], "/explicit");
+        assert_eq!(environment["PIP_NO_INDEX"], "true");
+        assert!(!environment.contains_key("PIP_INDEX_URL"));
+        assert!(!environment.contains_key("PIP_EXTRA_INDEX_URL"));
+        assert_eq!(
+            config.pip_environment(&HashMap::new())["PIP_FIND_LINKS"].replace('\\', "/"),
+            "/cache"
+        );
+        let config = RezConfig {
+            wheel_cache_path: None,
+            ..config
+        };
+        assert_eq!(
+            config.pip_environment(&HashMap::new())["PIP_FIND_LINKS"].replace('\\', "/"),
+            "/mirror/wheels"
+        );
+    }
+
+    #[test]
+    fn common_publication_root_respects_specific_targets() {
+        let package = crate::package::Package::new("sample", version::Version::new("1.0").unwrap());
+        let mut config = RezConfig {
+            repo_path: Some("/common".into()),
+            rez_install_categories: false,
+            release_bind_path: None,
+            release_pip_path: None,
+            ..RezConfig::default()
+        };
+        assert_eq!(
+            config.build_install_path(&package, None, false),
+            PathBuf::from("/common")
+        );
+        config.rez_install_location = false;
+        assert_eq!(
+            config.build_install_path(&package, None, false),
+            PathBuf::from("/common")
+        );
+        assert_eq!(
+            config.build_install_path(&package, Some(Path::new("/explicit")), true),
+            PathBuf::from("/explicit")
+        );
+        assert_eq!(
+            config.expanded_release_path_for_pip().to_os(),
+            PathBuf::from("/common")
+        );
+        config.release_build_path = Some("/specific".into());
+        assert_eq!(
+            config.build_install_path(&package, None, true),
+            PathBuf::from("/specific")
+        );
+        config.release_pip_path = Some("/pip".into());
+        assert_eq!(
+            config.expanded_release_path_for_pip().to_os(),
+            PathBuf::from("/pip")
+        );
+    }
 
     #[test]
     fn test_default_config() {

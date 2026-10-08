@@ -1,6 +1,6 @@
 # Plan 30 — Current Compatibility Work
 
-Updated: 2026-10-07. This is the only retained work plan. Previous plans and audit reports were removed from the new repository; prior Git history is retained separately in `old.rez-rs`. Upstream Rez is an external behavioral reference, not a bundled checkout.
+Updated: 2026-10-08. This is the only retained work plan. Previous plans and audit reports were removed from the new repository; prior Git history is retained separately in `old.rez-rs`. Upstream Rez is an external behavioral reference, not a bundled checkout.
 
 ## Current status
 
@@ -20,7 +20,22 @@ The book lives in `docs/mdbook`; generated HTML is excluded from source packages
 - [x] Verify the new `rez-python-api` bridge and extracted `rez.rs` distribution: 14 acceptance tests passed on each of CPython 3.13.11 and 3.10.18 against the same Windows abi3 ZIP; all 14 archive members matched canonical bytes and CRCs. Strict release all-target workspace Clippy passed after the bridge changes.
 - [x] After adding the CPython bridge, one full release workspace campaign passed: 1,507 test/doc-test executions, zero failures, seven ignored scenarios, across 46 targets. The interrupted compile attempt is not a test receipt.
 - [x] Configure read-only deploy keys for the four private GUI repositories and their corresponding Actions Secrets. Each key passed a fresh SSH read check; private key scratch files were removed. The CI fetch helper has 30 passing Python helper tests, including credential isolation and cleanup.
-- [ ] Accept a hosted GitHub run with the configured deploy-key credentials. Fork PRs run source checks only while the dependency repositories remain private.
+- [ ] Accept a hosted GitHub run with the configured deploy-key credentials. Run `37734529235` fetched the locked dependencies but failed a Windows 8.3-path regression; that regression is repaired and accepted locally, with a fresh hosted run still required. Fork PRs run source checks only while the dependency repositories remain private.
+
+## Shared environment contract
+
+The accepted names are `REZ_SOURCES_PATH`, `REZ_WHEEL_CACHE_PATH`, `REZ_USER_PATH`,
+`REZ_OFFLINE`, `REZ_REPO_PATH`, and `REZ_LOG_LEVEL`. PBS recipe overrides use
+`REZ_PBS_*`; package versions remain `REZ_BUILD_PROJECT_VERSION`. The obsolete
+external installer adapter is removed. Recipes live in the separate private
+`rez-rs-packages` repository and still require a compatible external `rez_build`
+helper.
+
+- [x] Verify the current source contract across canonical config, generated defaults, Rex/build child environments, publication precedence, and managed acquisition. The Windows release workspace gate passed 1,522 test/doc-test executions across 47 targets, zero failures and seven ignored scenarios; strict all-target workspace Clippy passed. Main Python helpers passed 33 tests; recipe controls passed 34 tests on CPython 3.13 and 3.10. Recipe syntax/just parsing covered 81 Python files and 65 justfiles. Earlier failed compile/cache-path attempts remain separate receipts under dist; this scope does not establish external recipe installation.
+- [x] Regenerate release/source artifacts after the contract changes with `bootstrap.py p --force`. `ci/verify_dist.py --require-python` verified 759 source members against canonical bytes and CRCs, installer helper equality, the frozen CLI runtime, and quickstart consumers. `ci/verify_python_api.py` passed 15 extracted-package acceptance tests on each of CPython 3.13.11 and 3.10.18 against the same Windows abi3 ZIP. Formatting passed. These scoped local receipts do not establish hosted CI, host activation, or external recipe installation.
+- [ ] Accept actual external-helper recipe builds separately. Controlled tests and source inspection do not establish installation of the recipe queue.
+
+See [settings, strict booleans, and acquisition scope](../mdbook/src/configuration.md#shared-source-cache-and-offline-settings). `REZ_OFFLINE` defaults to false and accepts `true`/`false`; it is not a network sandbox.
 
 ## Next execution order
 

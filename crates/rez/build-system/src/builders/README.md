@@ -77,6 +77,35 @@ Standard `REZ_BUILD_*` environment variables are set for all builders:
 `REZ_BUILD_PROJECT_NAME`, `REZ_BUILD_PROJECT_VERSION`,
 `REZ_BUILD_VARIANT_INDEX`, `REZ_BUILD_INSTALL_PATH`, etc.
 
+## Shared configuration and acquisition policy
+
+The canonical configuration exports `REZ_SOURCES_PATH`, `REZ_WHEEL_CACHE_PATH`,
+`REZ_USER_PATH`, `REZ_OFFLINE`, `REZ_REPO_PATH`, and `REZ_LOG_LEVEL` to child
+build environments. Configured values also reach generated launchers and Rex
+environments; present `REZ_PBS_*` recipe settings are preserved. Package identity
+continues to use the standard `REZ_BUILD_PROJECT_NAME` and
+`REZ_BUILD_PROJECT_VERSION`.
+
+`REZ_OFFLINE=true` requires managed extraction to use a local file, source mirror,
+or verified cache hit, and managed Pip to use `--no-index` with local find-links.
+Cargo, Go, and npm receive their supported offline environment controls.
+`REZ_OFFLINE=false` is the default; only case-insensitive `true`/`false` values
+are accepted. This policy does not sandbox arbitrary custom commands or external
+build helpers. The separately supplied recipe helper `rez_build` must honor the
+same names; it is not implemented by `rez.rs`.
+
+Offline Python builds require the backend and all build dependencies to be
+installed in the selected build interpreter. Managed `pip install` and `pip wheel`
+add `--no-build-isolation`; managed `python -m build` adds `--no-isolation`.
+These commands therefore use the existing interpreter instead of creating an
+isolated build environment that can download dependencies. A warm archive or
+wheel cache does not replace this prerequisite.
+
+Explicit publication destinations and per-builder release paths take precedence
+over `REZ_REPO_PATH`. Existing per-builder defaults still apply; resolution
+continues to use `REZ_PACKAGES_PATH`. See the [configuration contract and
+precedence](../../../../../docs/mdbook/src/configuration.md#shared-source-cache-and-offline-settings).
+
 ## Key Types / Traits
 
 | Type | Description |

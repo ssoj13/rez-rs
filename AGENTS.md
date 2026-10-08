@@ -10,7 +10,7 @@ Upstream Rez is an external behavioral reference. No Python Rez checkout or subm
 
 [Plan30](docs/plans/plan30.md) is the only active work queue. Prior plans and repository history are retained separately in `old.rez-rs`. Inspect current source and actual consumers before inferring that an implementation is missing from an old receipt.
 
-The current registry replacement has scoped Windows release/runtime acceptance: 27 Rust tests across six Python/SRE/TLS targets and 23 Python helper tests. The separate CPython bridge passed 14 extracted-package acceptance tests on each of CPython 3.13.11 and 3.10.18, using the same Windows abi3 archive; strict release all-target workspace Clippy also passed after the bridge changes. The current full release workspace campaign passed 1,507 test/doc-test executions with zero failures and seven ignored scenarios. Earlier migration/native receipts are historical. Do not infer full Rez compatibility, GUI runtime, native Unix acceptance, host activation, or external recipe installation from those scopes.
+The current registry replacement has scoped Windows release/runtime acceptance: 27 Rust tests across six Python/SRE/TLS targets and 23 Python helper tests. The separate CPython bridge passed 15 extracted-package acceptance tests on each of CPython 3.13.11 and 3.10.18, using the same Windows abi3 archive; strict release all-target workspace Clippy also passed after the bridge changes. The current full release workspace campaign passed 1,522 test/doc-test executions with zero failures and seven ignored scenarios. Earlier migration/native receipts are historical. Do not infer full Rez compatibility, GUI runtime, native Unix acceptance, host activation, or external recipe installation from those scopes.
 
 ## Verification
 
@@ -27,6 +27,7 @@ Root-only Cargo tests omit moved library tests. Ignored native-builder tests req
 ## Shared contracts
 
 - Reuse canonical model/config loading, package provenance, shared Rex actions, and the locked repository publisher. Keep CLI parsing at the root.
+- Shared environment settings are `REZ_SOURCES_PATH`, `REZ_WHEEL_CACHE_PATH`, `REZ_USER_PATH`, `REZ_OFFLINE`, `REZ_REPO_PATH`, and `REZ_LOG_LEVEL`. Keep their canonical config fields, child build environments, generated config, and documentation aligned. `REZ_OFFLINE` accepts only case-insensitive `true`/`false`, defaults to false, and guards managed acquisition rather than arbitrary network access. PBS overrides use `REZ_PBS_*`; the package version remains `REZ_BUILD_PROJECT_VERSION`.
 - Repository version locks use persistent `.lock.<family>-<version>` files. OS ownership is released on unlock/Drop; file presence does not mean an active lock. Do not unlink after each write.
 - Embedded RustPython requires `stdlib` and `freeze-stdlib` together and shared `InterpreterBuilder::init_stdlib`. Do not hardcode Python-home paths to repair distribution.
 - Preserve original verified Python package bytes, nullable package/cache policy, exact ResourceHandles, selected variant mapping, and metadata-last prepared publication.

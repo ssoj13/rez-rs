@@ -85,6 +85,19 @@ impl PipBuildSystem {
             args.push(".".into());
         }
         args.extend(ctx.build_args.iter().map(std::ffi::OsString::from));
+        if CONFIG.offline
+            || ctx
+                .env_vars
+                .get("REZ_OFFLINE")
+                .is_some_and(|value| value == "true")
+        {
+            let boundary = args
+                .iter()
+                .position(|arg| arg == "--")
+                .unwrap_or(args.len());
+            args.insert(boundary, "--no-index".into());
+            args.insert(boundary + 1, "--no-build-isolation".into());
+        }
         Ok(args)
     }
 
@@ -143,7 +156,6 @@ impl BuildSystem for PipBuildSystem {
         let target = crate::util::directory(work.path(), Path::new("target"), true)?;
         let args = Self::install_args(ctx, requirements_only, &target)?;
         let mut cmd = sources.pip(&self.pip_path, ctx, &args)?;
-        cmd.envs(&ctx.env_vars);
         if let Err(error) = run_cmd(
             &mut cmd,
             if ctx.install {
@@ -211,6 +223,24 @@ impl BuildSystem for PipBuildSystem {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn offline_pip_arguments_disable_indexes() {
+        let mut ctx = BuildContext::new("/source".into(), "/build".into(), "/install".into());
+        ctx.env_vars.insert("REZ_OFFLINE".into(), "true".into());
+        let args = PipBuildSystem::install_args(&ctx, false, Path::new("/target")).unwrap();
+        assert!(args.iter().any(|arg| arg == "--no-index"));
+        assert!(args.iter().any(|arg| arg == "--no-build-isolation"));
+        assert!(args.iter().any(|arg| arg == "."));
+        ctx.build_args = vec!["--".into(), "local.whl".into()];
+        let args = PipBuildSystem::install_args(&ctx, false, Path::new("/target")).unwrap();
+        let flag = args
+            .iter()
+            .position(|arg| arg == "--no-build-isolation")
+            .unwrap();
+        let boundary = args.iter().position(|arg| arg == "--").unwrap();
+        assert!(flag < boundary);
+    }
 
     #[test]
     fn test_pip_valid_root() {

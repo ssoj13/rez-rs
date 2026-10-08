@@ -76,7 +76,7 @@ python bootstrap.py p
 python dist/install.py --repository-root /path/to/repository
 ```
 
-The package family is `rez_rs`. The installer writes `tool/rez_rs/<version>` below the explicit repository root and refuses to replace different bytes already installed at the same version.
+The package family is `rez_rs`. The installer writes `tool/rez_rs/<version>` below the selected repository root and refuses to replace different bytes already installed at the same version. Set the root with `--repository-root` or `REZ_REPO_PATH`; the explicit argument takes precedence. No root is inferred when both are unset.
 
 Host activation is optional:
 
@@ -84,7 +84,7 @@ Host activation is optional:
 python dist/install.py --repository-root /path/to/repository --rez-root /path/to/existing/installation
 ```
 
-Activation requires one staged version and a host-compatible executable. It installs CLI files under `Scripts/rez` on Windows or `bin/rez` on Unix, with backups and recovery. System definitions are refreshed using the activated CLI's configuration. Set `REZ_CONFIG_FILE` or configure the CLI to select the intended system-package repository before activation. No deployment-specific environment variables or neighboring bootstrap configuration are inferred.
+Activation requires one staged version and a host-compatible executable. It installs CLI files under `Scripts/rez` on Windows or `bin/rez` on Unix, with backups and recovery. System definitions are refreshed using the activated CLI's configuration. Set `REZ_CONFIG_FILE` or configure the CLI to select the intended system-package repository before activation. Apart from the documented `REZ_REPO_PATH` fallback, no deployment-specific environment variables or neighboring bootstrap configuration are inferred.
 
 ## Verify
 

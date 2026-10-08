@@ -332,6 +332,7 @@ fn config_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
 
 #[pymodule]
 fn rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    model::config::ensure_valid().map_err(error)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("ABI_MINIMUM", "3.10")?;
     module.add("RezError", module.py().get_type::<RezError>())?;

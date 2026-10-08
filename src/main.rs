@@ -11,6 +11,21 @@ use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 
 mod cli;
 
+fn configured_log_level(
+    verbosity: u8,
+    configured: Option<&str>,
+) -> Result<foundation::logging::LogLevel, String> {
+    if verbosity > 0 {
+        return Ok(foundation::logging::LogLevel::from_verbosity(verbosity));
+    }
+    match configured {
+        None => Ok(foundation::logging::LogLevel::Off),
+        Some(value) => foundation::logging::LogLevel::from_name(value).ok_or_else(|| {
+            "REZ_LOG_LEVEL/log_level must be OFF, ERROR, WARNING, INFO, DEBUG, or TRACE".into()
+        }),
+    }
+}
+
 /// Write default rezconfig. Path: None = ~/.rez/rezconfig.py (default), Some("bin") = next to exe, Some(p) = p.
 /// Creates ~/.rez/, ~/.rez/packages/{local,int,ext,bind,pip,python} when writing to default location.
 /// If target exists and force=false, returns error.
@@ -461,7 +476,15 @@ fn main() -> std::process::ExitCode {
     } else {
         None
     };
-    if let Err(e) = foundation::logging::init(cli.verbose, log_file) {
+    let early_log_level =
+        match configured_log_level(cli.verbose, std::env::var("REZ_LOG_LEVEL").ok().as_deref()) {
+            Ok(level) => level,
+            Err(error) => {
+                eprintln!("rez: error: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+    if let Err(e) = foundation::logging::init_level(early_log_level, log_file) {
         eprintln!("rez: warning: failed to init logging: {e}");
     }
 
@@ -473,6 +496,21 @@ fn main() -> std::process::ExitCode {
         }
         return std::process::ExitCode::SUCCESS;
     }
+
+    if let Err(error) = model::config::ensure_valid() {
+        eprintln!("rez: error: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
+
+    let configured_level =
+        match configured_log_level(cli.verbose, model::config::CONFIG.log_level.as_deref()) {
+            Ok(level) => level,
+            Err(error) => {
+                eprintln!("rez: error: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+    foundation::logging::set_level(configured_level);
 
     let command = match cli.command {
         Some(c) => c,
@@ -591,7 +629,7 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(test)]
 mod cli_tests {
-    use super::{Cli, Commands};
+    use super::{configured_log_level, Cli, Commands};
     use clap::{CommandFactory, Parser};
 
     #[test]
@@ -638,6 +676,33 @@ mod cli_tests {
         }
         let version = Cli::try_parse_from(["rez", "--version"]).unwrap_err();
         assert_eq!(version.kind(), clap::error::ErrorKind::DisplayVersion);
+    }
+
+    #[test]
+    fn named_logging_and_cli_verbosity_have_explicit_precedence() {
+        use foundation::logging::LogLevel;
+        for (name, expected) in [
+            ("OFF", LogLevel::Off),
+            ("ERROR", LogLevel::Error),
+            ("WARNING", LogLevel::Warning),
+            (" info ", LogLevel::Info),
+            ("debug", LogLevel::Debug),
+            ("TRACE", LogLevel::Trace),
+        ] {
+            assert_eq!(configured_log_level(0, Some(name)).unwrap(), expected);
+            assert_eq!(configured_log_level(1, Some(name)).unwrap(), LogLevel::Info);
+            assert_eq!(
+                configured_log_level(2, Some(name)).unwrap(),
+                LogLevel::Debug
+            );
+            assert_eq!(
+                configured_log_level(3, Some(name)).unwrap(),
+                LogLevel::Trace
+            );
+        }
+        assert_eq!(configured_log_level(0, None).unwrap(), LogLevel::Off);
+        assert!(configured_log_level(0, Some("10")).is_err());
+        assert!(configured_log_level(0, Some("unknown")).is_err());
     }
 
     #[test]

@@ -10,7 +10,7 @@ Company/deployment references were removed or anonymized, including upstream ado
 
 The README now identifies personal experimental use and distinguishes checked scenarios from full compatibility. Installation, development, architecture, and internals documentation describe the current workspace. Unsupported general speed, binary-size, full-compatibility, and old test-count claims were removed from the main onboarding pages.
 
-The installer now requires `--repository-root`; `--rez-root` is the explicit host-activation option. It no longer infers private deployment environment variables or a neighboring bootstrap configuration. Existing callers using only environment defaults must pass these flags.
+The installer accepts `--repository-root` or the documented `REZ_REPO_PATH` fallback; an explicit argument wins. `--rez-root` is the explicit host-activation option. It no longer infers private deployment environment variables or a neighboring bootstrap configuration.
 
 Root LICENSE and NOTICE files now match the existing Apache-2.0 declaration and source headers. Functional crate manifests declare the same license; upstream and vendored licenses remain intact.
 
@@ -21,6 +21,8 @@ The book and public project notes now live together under `docs/mdbook/`. The `d
 A fresh repository snapshot replaces the earlier history, which is retained separately as `old.rez-rs`. The new repository contains only the active Plan30; old plans and audit reports are removed.
 
 The former upstream Rez reference checkout, gitlink, submodule configuration, and local submodule Git storage were removed at the user's request. Upstream Rez is an external reference; source packages no longer include its checkout.
+
+Shared source, wheel, user-data, offline, publication-root, and logging settings now use the canonical `REZ_*` contract in [configuration](configuration.md#shared-source-cache-and-offline-settings). The separate recipe repository uses matching names and `REZ_PBS_*` overrides. The obsolete external installer adapter is removed; actual recipe build helpers remain an external prerequisite. Earlier test and distribution receipts below retain their original source scope.
 
 ## Verification scope
 

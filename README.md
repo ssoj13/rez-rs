@@ -71,7 +71,7 @@ rez bind --quickstart
 rez env python -- python --version
 ```
 
-Review the generated `~/.rez/rezconfig.py` to select your package repositories. Existing configurations are preserved unless `--force` is supplied. Binding creates package definitions for software detected on the host; it does not install that software.
+Review the generated `~/.rez/rezconfig.py` to select your package repositories. It also documents `sources_path`, `wheel_cache_path`, `user_path`, `offline`, `repo_path`, and `log_level`, with environment overrides `REZ_SOURCES_PATH`, `REZ_WHEEL_CACHE_PATH`, `REZ_USER_PATH`, `REZ_OFFLINE`, `REZ_REPO_PATH`, and `REZ_LOG_LEVEL`. Use `REZ_OFFLINE=true` or `false`; see the [shared settings and publication precedence](docs/mdbook/src/configuration.md#shared-source-cache-and-offline-settings). Existing configurations are preserved unless `--force` is supplied. Binding creates package definitions for software detected on the host; it does not install that software.
 
 For a package build example, see [examples](examples/README.md). Each example names its required build tools and contains a package recipe.
 
@@ -94,7 +94,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 Root-only `cargo test` does not run the libraries moved into the functional crates. A workspace test run also selects the GUI member. Some native builder tests are explicitly ignored in the ordinary run and must be selected separately.
 
-The current Windows release workspace campaign passed 1,507 test/doc-test executions with zero failures and seven ignored scenarios. Strict workspace Clippy passed, and the same Python API archive passed 14 acceptance tests on each of CPython 3.13 and 3.10. Ignored native scenarios, GUI interaction, and Unix runtime acceptance remain separate gates. [Plan30](docs/plans/plan30.md) summarizes their scope; detailed earlier receipts remain with the previous repository.
+The current Windows release workspace campaign passed 1,522 test/doc-test executions with zero failures and seven ignored scenarios. Strict workspace Clippy passed, and the same Python API archive passed 15 acceptance tests on each of CPython 3.13 and 3.10. Ignored native scenarios, GUI interaction, and Unix runtime acceptance remain separate gates. [Plan30](docs/plans/plan30.md) summarizes their scope; detailed earlier receipts remain with the previous repository.
 
 ## Documentation
 
@@ -110,7 +110,7 @@ Build the documentation book with `mdbook build docs/mdbook`. See the [documenta
 
 `python bootstrap.py p` builds the release CLI and CPython API. It stages `dist/rez_rs/<version>` with `package.py`, the executable, and `rez-rs.zip`. Use `--force` to replace an existing staged version. Installer helpers are copied beside the package.
 
-The installer requires explicit destination paths:
+Give the installer a repository root through `--repository-root` or `REZ_REPO_PATH`; the explicit argument takes precedence:
 
 ```bash
 python dist/install.py --repository-root /path/to/repository

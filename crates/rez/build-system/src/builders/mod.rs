@@ -374,6 +374,33 @@ pub trait BuildSystem: fmt::Debug + Send + Sync {
     }
 }
 
+/// Freeze build controls and explicitly allow them through clean-shell policy.
+fn build_launcher_environment(
+    ctx: &BuildContext,
+    config: &crate::config::RezConfig,
+) -> HashMap<String, String> {
+    let mut environment: HashMap<String, String> = ctx
+        .env_vars
+        .iter()
+        .filter(|(name, _)| {
+            name.starts_with("REZ_BUILD_")
+                || crate::config::RezConfig::is_recipe_environment_variable(name)
+                || matches!(
+                    name.as_str(),
+                    "CARGO_NET_OFFLINE" | "GOPROXY" | "GOSUMDB" | "NPM_CONFIG_OFFLINE"
+                )
+        })
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let mut parent_variables = config.parent_variables.clone();
+    parent_variables.extend(environment.keys().cloned());
+    parent_variables.sort();
+    parent_variables.dedup();
+    // The plain override takes precedence over an inherited JSON form.
+    environment.insert("REZ_PARENT_VARIABLES".into(), parent_variables.join(","));
+    environment
+}
+
 /// Create the shared build-environment launcher using the resolved build context.
 pub(crate) fn create_build_env_script(ctx: &BuildContext) -> Result<PathBuf> {
     let context_path = ctx.build_context_path.as_deref().ok_or_else(|| {
@@ -390,12 +417,7 @@ pub(crate) fn create_build_env_script(ctx: &BuildContext) -> Result<PathBuf> {
         context_path.to_string_lossy().into_owned(),
         "--inherited".to_string(),
     ];
-    let build_env: HashMap<String, String> = ctx
-        .env_vars
-        .iter()
-        .filter(|(key, _)| key.starts_with("REZ_BUILD_"))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
+    let build_env = build_launcher_environment(ctx, &CONFIG);
     let shell = if CONFIG.default_shell.is_empty() {
         detect_shell()
     } else {
@@ -702,6 +724,7 @@ impl BuildProcess {
         force: bool,
         write_build_scripts: bool,
     ) -> Result<Vec<BuildResult>> {
+        crate::config::ensure_valid()?;
         if self.build_directory.is_absolute() && self.package_name.is_empty() {
             return Err(RezError::Build(
                 "An absolute build_directory requires package metadata".into(),
@@ -904,6 +927,17 @@ impl BuildProcess {
                 install,
                 resolved_context.as_ref(),
             )?;
+
+            env_vars.extend(CONFIG.recipe_environment());
+            env_vars.extend(std::env::vars().filter(|(name, _)| name.starts_with("REZ_PBS_")));
+            if CONFIG.offline {
+                env_vars.extend([
+                    ("CARGO_NET_OFFLINE".into(), "true".into()),
+                    ("GOPROXY".into(), "off".into()),
+                    ("GOSUMDB".into(), "off".into()),
+                    ("NPM_CONFIG_OFFLINE".into(), "true".into()),
+                ]);
+            }
 
             if let Some(context) = resolved_context.as_ref() {
                 let mut parent = std::env::vars().collect::<HashMap<_, _>>();
@@ -1399,6 +1433,77 @@ mod tests {
             self.0.lock().unwrap().push(context.clone());
             Ok(BuildResult::ok(context.build_path.clone(), 0.0))
         }
+    }
+
+    #[test]
+    fn frozen_launcher_controls_survive_a_clean_shell_without_host_leaks() {
+        let mut ctx = BuildContext::new("/source".into(), "/build".into(), "/install".into());
+        ctx.env_vars = HashMap::from([
+            ("REZ_BUILD_PROJECT_NAME".into(), "frozen-project".into()),
+            ("REZ_PBS_RELEASE_TAG".into(), "frozen-release".into()),
+            ("REZ_USER_PATH".into(), "frozen-user".into()),
+            ("REZ_OFFLINE".into(), "true".into()),
+            ("CARGO_NET_OFFLINE".into(), "true".into()),
+            ("GOPROXY".into(), "off".into()),
+            ("GOSUMDB".into(), "off".into()),
+            ("NPM_CONFIG_OFFLINE".into(), "true".into()),
+            ("UNRELATED".into(), "must-not-be-frozen".into()),
+        ]);
+        let config = crate::config::RezConfig {
+            parent_variables: vec!["KEEP_EXISTING".into()],
+            ..crate::config::RezConfig::default()
+        };
+        let frozen = build_launcher_environment(&ctx, &config);
+        assert!(!frozen.contains_key("UNRELATED"));
+        let mut parent = std::env::vars().collect::<HashMap<_, _>>();
+        parent.extend([
+            ("REZ_PBS_RELEASE_TAG".into(), "changed-host-release".into()),
+            ("REZ_USER_PATH".into(), "changed-host-user".into()),
+            ("KEEP_EXISTING".into(), "kept".into()),
+            ("UNRELATED".into(), "host-leak".into()),
+            ("REZ_PARENT_VARIABLES_JSON".into(), "[\"UNRELATED\"]".into()),
+        ]);
+        parent.extend(frozen);
+        let allowlist = parent["REZ_PARENT_VARIABLES"]
+            .split(',')
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let clean = model::environment::clean_environ(
+            model::platform::Platform::current(),
+            &parent,
+            &allowlist,
+        );
+        assert_eq!(clean["KEEP_EXISTING"], "kept");
+        assert_eq!(clean["CARGO_NET_OFFLINE"], "true");
+        assert_eq!(clean["GOPROXY"], "off");
+        assert_eq!(clean["GOSUMDB"], "off");
+        assert_eq!(clean["NPM_CONFIG_OFFLINE"], "true");
+        assert!(!clean.contains_key("UNRELATED"));
+        #[cfg(windows)]
+        let (shell, args) = (
+            crate::shell::types::find_executable("cmd.exe", None).unwrap(),
+            vec![
+                "/D",
+                "/c",
+                "echo %REZ_BUILD_PROJECT_NAME%:%REZ_PBS_RELEASE_TAG%:%REZ_USER_PATH%:%REZ_OFFLINE%",
+            ],
+        );
+        #[cfg(not(windows))]
+        let (shell, args) = (
+            "/bin/sh".to_owned(),
+            vec!["-c", "printf '%s:%s:%s:%s' \"$REZ_BUILD_PROJECT_NAME\" \"$REZ_PBS_RELEASE_TAG\" \"$REZ_USER_PATH\" \"$REZ_OFFLINE\""],
+        );
+        let output = Command::new(shell)
+            .args(args)
+            .env_clear()
+            .envs(clean)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "frozen-project:frozen-release:frozen-user:true"
+        );
     }
 
     #[test]

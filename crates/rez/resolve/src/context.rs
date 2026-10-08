@@ -2099,6 +2099,7 @@ impl ResolvedContext {
         executor: &mut RexExecutor<I>,
         callback: Option<&RexExecutionCallback>,
     ) -> Result<()> {
+        crate::config::ensure_valid()?;
         let execution_packages = self.execution_packages(None)?;
         let resolved_pkgs = execution_packages.as_slice();
         let ephemerals = self.resolved_ephemerals.as_deref().unwrap_or(&[]);
@@ -2130,6 +2131,9 @@ impl ResolvedContext {
 
         // System setup
         executor.comment("system setup");
+        for (name, value) in CONFIG.recipe_environment() {
+            executor.setenv(&name, value);
+        }
         executor.setenv("REZ_USED", &self.rez_path);
         executor.setenv("REZ_USED_VERSION", &self.rez_version);
         executor.setenv("REZ_USED_TIMESTAMP", self.timestamp.to_string());
@@ -3253,9 +3257,16 @@ def _exec_rex(code, filename="<rex>"):
         compiled = compile(code, filename, "exec")
     except Exception:
         raise _RexError("Failed to compile %s:\n\n%s" % (filename, traceback.format_exc()))
+    import os as _rex_os
+    saved_environ = _rex_os.environ
+    # Use an interpreter-local dictionary: _Environ writes would mutate the host.
+    keys = set(_rex_data["environment"]["parent"]) | set(_rex_data["environment"]["current"])
+    keys.update(action["k"] for action in _actions if "k" in action)
+    _rex_os.environ = {key: getenv(key) for key in keys if defined(key)}
     try:
         exec(compiled, namespace)
     finally:
+        _rex_os.environ = saved_environ
         namespace.clear()
         namespace.update(saved)
 
@@ -5904,6 +5915,38 @@ setenv("RESULT", "accepted")
         let mut ctx = ResolvedContext::empty();
         ctx.status = ResolverStatus::Solved;
         assert!(ctx.require_success().is_ok());
+    }
+
+    #[test]
+    fn recipe_controls_reach_embedded_os_without_host_mutation() {
+        let before = std::env::var_os("REZ_USER_PATH");
+        let config = crate::config::RezConfig {
+            user_path: Some("/configured-user".into()),
+            sources_path: Some("/configured-sources".into()),
+            offline: true,
+            ..crate::config::RezConfig::default()
+        };
+        let mut ctx = ResolvedContext::empty();
+        ctx.status = ResolverStatus::Solved;
+        ctx.resolved_packages = Some(vec![ResolvedPackageInfo {
+            name: "recipe_env".into(),
+            version: Version::new("1.0").unwrap(),
+            variant_index: None,
+            resource_handle: None,
+            requires: Vec::new(),
+            repo_path: None,
+            root: None,
+            commands: Some("import os\nenv.RECIPE_USER_READ = os.environ['REZ_USER_PATH']\nenv.RECIPE_SOURCE_READ = os.getenv('REZ_SOURCES_PATH')\nos.environ['REZ_USER_PATH'] = '/interpreter-only'\nenv.RECIPE_LOCAL_READ = os.getenv('REZ_USER_PATH')\n".into()),
+            pre_commands: None,
+            post_commands: None,
+        }]);
+        let environment = ctx.get_environ(Some(config.recipe_environment())).unwrap();
+        assert_eq!(environment["RECIPE_USER_READ"], "/configured-user");
+        assert_eq!(environment["RECIPE_SOURCE_READ"], "/configured-sources");
+        assert_eq!(environment["RECIPE_LOCAL_READ"], "/interpreter-only");
+        assert_eq!(std::env::var_os("REZ_USER_PATH"), before);
+        let environment = ctx.get_environ(Some(config.recipe_environment())).unwrap();
+        assert_eq!(environment["RECIPE_USER_READ"], "/configured-user");
     }
 
     #[test]

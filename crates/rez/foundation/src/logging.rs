@@ -1,23 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Logging for rez-rs: INFO, DEBUG, TRACE.
-//!
-//! Controlled by -v (INFO), -vv (DEBUG), -vvv (TRACE) and --log [file].
+//! Logging for rez-rs, controlled by REZ_LOG_LEVEL/config log_level,
+//! -v (INFO), -vv (DEBUG), -vvv (TRACE), and --log [file].
 
 use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::sync::{Mutex, RwLock};
 
-/// Log level: INFO (1), DEBUG (2), TRACE (3).
+/// Threshold for optional diagnostic logging.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
     Off = 0,
-    Info = 1,
-    Debug = 2,
-    Trace = 3,
+    Error = 1,
+    Warning = 2,
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
 }
 
 impl LogLevel {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_uppercase().as_str() {
+            "OFF" => Some(Self::Off),
+            "ERROR" => Some(Self::Error),
+            "WARNING" => Some(Self::Warning),
+            "INFO" => Some(Self::Info),
+            "DEBUG" => Some(Self::Debug),
+            "TRACE" => Some(Self::Trace),
+            _ => None,
+        }
+    }
+
     pub fn from_verbosity(v: u8) -> Self {
         match v {
             0 => LogLevel::Off,
@@ -39,7 +52,11 @@ static LOGGER: RwLock<Option<LoggerState>> = RwLock::new(None);
 /// - verbosity: 0=off, 1=INFO, 2=DEBUG, 3+=TRACE
 /// - log_file: None = stderr only; Some(None) = default name (rez.log); Some(Some(path)) = custom path
 pub fn init(verbosity: u8, log_file: Option<Option<String>>) -> io::Result<()> {
-    let level = LogLevel::from_verbosity(verbosity);
+    init_level(LogLevel::from_verbosity(verbosity), log_file)
+}
+
+/// Initialize logging with an explicit named threshold.
+pub fn init_level(level: LogLevel, log_file: Option<Option<String>>) -> io::Result<()> {
     let writer: Option<Mutex<Box<dyn Write + Send>>> = match log_file {
         None => None,
         Some(None) => {
@@ -68,6 +85,19 @@ pub fn init(verbosity: u8, log_file: Option<Option<String>>) -> io::Result<()> {
     Ok(())
 }
 
+/// Update the threshold while keeping the configured log destination.
+pub fn set_level(level: LogLevel) {
+    let mut state = LOGGER.write().unwrap_or_else(|e| e.into_inner());
+    if let Some(state) = state.as_mut() {
+        state.level = level;
+    } else {
+        *state = Some(LoggerState {
+            level,
+            writer: None,
+        });
+    }
+}
+
 /// Internal logging sink. Explicit config diagnostics can bypass verbosity with `forced`;
 /// they still use the same stderr and optional file destination.
 pub fn do_log(level: LogLevel, target: &str, args: std::fmt::Arguments, forced: bool) {
@@ -90,6 +120,8 @@ pub fn do_log(level: LogLevel, target: &str, args: std::fmt::Arguments, forced: 
 fn level_str(l: LogLevel) -> &'static str {
     match l {
         LogLevel::Off => "OFF",
+        LogLevel::Error => "ERROR",
+        LogLevel::Warning => "WARNING",
         LogLevel::Info => "INFO",
         LogLevel::Debug => "DEBUG",
         LogLevel::Trace => "TRACE",

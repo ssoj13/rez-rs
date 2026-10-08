@@ -87,6 +87,7 @@ fn canonical_name(value: &str) -> String {
 }
 
 pub fn install(options: &Options, config: &RezConfig) -> Result<InstallResult> {
+    crate::config::ensure_valid()?;
     if options.packages.is_empty() {
         return Err(RezError::Build("No pip package was requested".into()));
     }
@@ -100,6 +101,22 @@ pub fn install(options: &Options, config: &RezConfig) -> Result<InstallResult> {
         None => None,
     };
     let release = options.release || options.pre_release;
+    if config.offline && options.pypi_upload {
+        return Err(RezError::Build(
+            "REZ_OFFLINE=true: PyPI uploads are disabled".into(),
+        ));
+    }
+    if config.offline
+        && options
+            .packages
+            .iter()
+            .chain(&options.extra)
+            .any(|value| value.contains("://") && !value.starts_with("file://"))
+    {
+        return Err(RezError::Build(
+            "REZ_OFFLINE=true: remote pip sources are disabled".into(),
+        ));
+    }
     if options.local && release {
         return Err(RezError::Build(
             "--local cannot be combined with --release or --pre-release".into(),
@@ -177,6 +194,9 @@ pub fn install(options: &Options, config: &RezConfig) -> Result<InstallResult> {
         Some(&["-t"]),
     )?;
     args.extend(extra);
+    if config.offline {
+        args.push("--no-index".into());
+    }
     args.extend(sources);
     let output = python.run(&args, None)?;
     if !output.stdout.is_empty() {
@@ -231,6 +251,8 @@ pub fn install(options: &Options, config: &RezConfig) -> Result<InstallResult> {
         RezConfig::expand_path(prefix).to_os()
     } else if release {
         config.expanded_release_path_for_pip().to_os()
+    } else if let Some(path) = &config.repo_path {
+        RezConfig::expand_path(path).to_os()
     } else {
         config.expanded_local_packages_path().to_os()
     };

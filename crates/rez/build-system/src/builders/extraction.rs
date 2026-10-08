@@ -65,6 +65,15 @@ impl ExtractionSource {
 
     /// Resolve to a local file path; downloads URL sources to cache if needed.
     pub fn resolve_path(&self, source_dir: &Path) -> Result<Option<PathBuf>> {
+        crate::config::ensure_valid()?;
+        self.resolve_path_with_config(source_dir, &crate::config::CONFIG)
+    }
+
+    fn resolve_path_with_config(
+        &self,
+        source_dir: &Path,
+        config: &crate::config::RezConfig,
+    ) -> Result<Option<PathBuf>> {
         if let Some(checksum) = &self.checksum {
             checksum.validate()?;
         }
@@ -104,16 +113,56 @@ impl ExtractionSource {
             }
         }
         if let Some(ref url) = self.url {
-            let cache_dir = std::env::temp_dir().join("rez_build_cache");
             let file_name = self.download_file_name(url)?;
-            return super::download::download_to_cache(
-                url,
-                &cache_dir,
-                &file_name,
-                self.checksum.as_ref(),
-                None,
-            )
-            .map(Some);
+            if let Some(mirror) = &config.sources_path {
+                let path = crate::config::RezConfig::expand_path(mirror)
+                    .to_os()
+                    .join(&file_name);
+                if path.is_file() {
+                    if let Some(checksum) = &self.checksum {
+                        if !super::download::verify_checksum(
+                            &path,
+                            &checksum.algorithm,
+                            &checksum.hash,
+                            true,
+                        )? {
+                            return Err(RezError::BuildSystem(format!(
+                                "Checksum mismatch for source mirror {}",
+                                path.display()
+                            )));
+                        }
+                    }
+                    return Ok(Some(path));
+                }
+            }
+            let cache_dir = config
+                .user_path
+                .as_ref()
+                .map(|path| {
+                    crate::config::RezConfig::expand_path(path)
+                        .to_os()
+                        .join("cache/downloads")
+                })
+                .unwrap_or_else(|| std::env::temp_dir().join("rez_build_cache"));
+            let path = if config.offline {
+                super::download::download_to_cache_with_policy(
+                    url,
+                    &cache_dir,
+                    &file_name,
+                    self.checksum.as_ref(),
+                    None,
+                    true,
+                )
+            } else {
+                super::download::download_to_cache(
+                    url,
+                    &cache_dir,
+                    &file_name,
+                    self.checksum.as_ref(),
+                    None,
+                )
+            };
+            return path.map(Some);
         }
         Ok(None)
     }
@@ -481,6 +530,35 @@ fn extract_msi(_src: &Path, _dest: &Path) -> Result<()> {
 mod tests {
     use super::{parse_sources, ArchiveFormat, ExtractionSource};
     use std::io::Write;
+
+    #[test]
+    fn offline_extraction_uses_mirror_and_rejects_network_miss() {
+        let root = tempfile::tempdir().unwrap();
+        let mirror = root.path().join("mirror");
+        std::fs::create_dir(&mirror).unwrap();
+        let source: ExtractionSource = serde_json::from_value(serde_json::json!({
+            "url": "https://example.invalid/package.zip"
+        }))
+        .unwrap();
+        let config = crate::config::RezConfig {
+            sources_path: Some(mirror.to_string_lossy().into_owned()),
+            user_path: Some(root.path().join("user").to_string_lossy().into_owned()),
+            offline: true,
+            ..crate::config::RezConfig::default()
+        };
+        let error = source
+            .resolve_path_with_config(root.path(), &config)
+            .unwrap_err();
+        assert!(error.to_string().contains("REZ_OFFLINE=true"), "{error}");
+        let local = mirror.join("package.zip");
+        std::fs::write(&local, b"local archive").unwrap();
+        assert_eq!(
+            source
+                .resolve_path_with_config(root.path(), &config)
+                .unwrap(),
+            Some(local)
+        );
+    }
 
     const PAYLOAD: &[u8] = b"archive payload";
 

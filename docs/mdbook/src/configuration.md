@@ -12,8 +12,8 @@ Configuration is loaded in layers, where later layers override earlier ones:
 2. **Site rezconfig.py** -- checked first as `.py`, then `.toml`, in standard site-wide locations
 3. **User rezconfig** -- `~/.rez/rezconfig.py` or `~/.rez/rezconfig.toml`
 4. **REZ_CONFIG_FILE** -- environment variable pointing to a specific `.py` or `.toml` config file
-5. **REZ_* environment variables** -- individual overrides (e.g., `REZ_PACKAGES_PATH`)
-6. **REZ_*_JSON environment variables** -- JSON-encoded overrides for complex values (e.g., `REZ_IMPLICIT_PACKAGES_JSON='["~platform==linux"]'`)
+5. **REZ_*_JSON environment variables** -- JSON-encoded overrides for complex values (e.g., `REZ_IMPLICIT_PACKAGES_JSON='["~platform==linux"]'`)
+6. **REZ_* environment variables** -- individual overrides (e.g., `REZ_PACKAGES_PATH`); when both forms are set for one field, the plain form wins
 
 ## Configuration File Formats
 
@@ -70,6 +70,37 @@ values = ["~platform=={system.platform}", "~arch=={system.arch}", "~os=={system.
 | `release_build_path` | `str?` | `"~/.rez/packages/python"` | Where `rez release` deploys packages. If unset, uses `release_packages_path` |
 | `tmpdir` | `str?` | `None` | Temp directory override (default: system temp) |
 | `context_tmpdir` | `str?` | `None` | Where resolved context scripts are written |
+
+### Shared source, cache, and offline settings
+
+These settings belong to the canonical configuration owner and are also passed to Rex and build environments. Path values select one directory, not a list of directories.
+
+| Field | Environment variable | Default | Description |
+|---|---|---|---|
+| `sources_path` | `REZ_SOURCES_PATH` | `None` | Root of a local source/archive mirror; recipes choose their own subdirectories |
+| `wheel_cache_path` | `REZ_WHEEL_CACHE_PATH` | `None` | Local wheel directory; managed Pip falls back to `sources_path/wheels` when unset |
+| `user_path` | `REZ_USER_PATH` | `None` | User data root; tool recipes preserve `cache/<tool>` beneath it |
+| `offline` | `REZ_OFFLINE` | `False` | Prohibit managed network acquisition and require local inputs/caches |
+| `repo_path` | `REZ_REPO_PATH` | `None` | Common publication root, below explicit destinations and per-builder release paths |
+| `log_level` | `REZ_LOG_LEVEL` | `None` | Optional logging level: `ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`, or `OFF` |
+
+Set `REZ_OFFLINE=true` or `REZ_OFFLINE=false`. These values are case-insensitive; numeric values and other strings are rejected for this setting. Configuration files use Python `True`/`False` or TOML `true`/`false`. Build environments receive the canonical lowercase text. Other standard Rez variables keep their existing formats, including the generated `REZ_BUILD_INSTALL` flag.
+
+For publication, an explicit CLI destination wins, followed by the applicable per-builder `release_*_path`, then `repo_path`, then the normal local/release fallback. Existing default `release_bind_path`, `release_pip_path`, and `release_build_path` still count as per-builder paths; set the relevant field to `None` to use `repo_path` for that operation. Local package builds use `repo_path` before `local_packages_path`; local Pip also preserves its explicit prefix settings. The staged-release installer uses an explicit `--repository-root` before `REZ_REPO_PATH`. Resolution still uses `packages_path` / `REZ_PACKAGES_PATH`; a publication root does not replace that search list.
+
+Managed extraction accepts local files, source-mirror inputs, and verified download-cache hits offline; it rejects a network cache miss before HTTP. Managed Pip adds `--no-index` and uses existing `PIP_FIND_LINKS`, otherwise `wheel_cache_path`, otherwise `sources_path/wheels`. Build environments also set the supported Cargo, Go, and npm offline controls. An arbitrary custom command or an external helper can have its own network behavior: `REZ_OFFLINE` is a shared acquisition policy, not an operating-system network sandbox.
+
+Offline Python builds also require the build backend and all build dependencies to be installed in the selected build interpreter beforehand. Managed `pip install` and `pip wheel` add `--no-build-isolation`, and managed `python -m build` adds `--no-isolation`, so those commands cannot create an isolated environment that downloads its build dependencies. A warm source or wheel cache alone does not supply the backend.
+
+The generated commented config includes all six fields. To inspect them:
+
+```console
+rez config sources_path
+rez config offline
+rez config repo_path
+```
+
+PBS-specific `REZ_PBS_*` settings belong to the external Python recipes, rather than additional canonical configuration fields; the build environment forwards them when present. External recipes live in the separate private `rez-rs-packages` repository. Their `rez_build` helper is supplied separately and must implement this shared contract; `rez.rs` does not provide it.
 
 ### Extensions
 
@@ -132,7 +163,7 @@ Shell detection priority on Windows: Git Bash EXEPATH -> cmd.exe -> PowerShell.
 | `cache_listdir` | `bool` | `true` | Cache directory listings |
 | `resource_caching_maxsize` | `int` | `-1` | Max cache size (-1 = unlimited) |
 | `memcached_uri` | `list[str]` | `[]` | Memcached server URIs |
-| `default_hashed_variants` | `bool` | `true` | Use SHA1 hash for variant subdirs (false = readable platform-X/arch-Y paths) |
+| `default_hashed_variants` | `bool` | `false` | Use SHA1 hash for variant subdirs (false = readable platform-X/arch-Y paths) |
 | `cache_packages_path` | `str?` | `None` | Local package cache directory |
 | `read_package_cache` | `bool` | `true` | Read from local package cache |
 | `write_package_cache` | `bool` | `true` | Write to local package cache |

@@ -104,6 +104,41 @@ class SourcePublicationTests(unittest.TestCase):
         install.assert_called_once_with(payload.resolve() / "0.1.0", repository.resolve())
         activate.assert_not_called()
 
+    def test_repository_environment_default_and_explicit_cli_precedence(self):
+        repository, payload = self.setup_payload()
+        environment_repository = self.root / "environment-repository"
+        environment_repository.mkdir()
+        for explicit in (False, True):
+            argv = ["install.py", "--payload-dir", str(payload)]
+            if explicit:
+                argv.extend(["--repository-root", str(repository)])
+            with patch.object(sys, "argv", argv), patch.dict(
+                os.environ, {"REZ_REPO_PATH": "$REZ_TEST_DESTINATION",
+                             "REZ_TEST_DESTINATION": str(environment_repository)}, clear=True
+            ), patch.object(installer, "install_package") as install:
+                self.assertEqual(installer.main(), 0)
+            expected = repository if explicit else environment_repository
+            install.assert_called_once_with(payload.resolve() / "0.1.0", expected.resolve())
+
+    def test_repository_environment_expands_user_home(self):
+        repository, payload = self.setup_payload()
+        with patch.object(sys, "argv", ["install.py", "--payload-dir", str(payload)]), patch.dict(
+            os.environ, {"REZ_REPO_PATH": "~/repository", "USERPROFILE": str(self.root),
+                         "HOME": str(self.root)}, clear=True
+        ), patch.object(installer, "install_package") as install:
+            self.assertEqual(installer.main(), 0)
+        install.assert_called_once_with(payload.resolve() / "0.1.0", repository.resolve())
+
+    def test_missing_repository_fails_before_install(self):
+        _, payload = self.setup_payload()
+        with patch.object(sys, "argv", ["install.py", "--payload-dir", str(payload)]), patch.dict(
+            os.environ, {}, clear=True
+        ), patch.object(installer, "install_package") as install, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                installer.main()
+        self.assertEqual(error.exception.code, 2)
+        install.assert_not_called()
+
     def test_activation_uses_cli_configuration_without_neighbour_bootstrap(self):
         repository, payload = self.setup_payload()
         host = self.root / "host"

@@ -109,6 +109,18 @@ pub fn download_to_cache(
     checksum: Option<&ChecksumSpec>,
     agent: Option<&ureq::Agent>,
 ) -> Result<PathBuf> {
+    download_to_cache_with_policy(url, cache_root, file_name, checksum, agent, false)
+}
+
+/// Cache-only policy rejects misses before constructing an HTTP agent.
+pub(super) fn download_to_cache_with_policy(
+    url: &str,
+    cache_root: &Path,
+    file_name: &str,
+    checksum: Option<&ChecksumSpec>,
+    agent: Option<&ureq::Agent>,
+    offline: bool,
+) -> Result<PathBuf> {
     validate_cache_file_name(file_name)?;
     if let Some(spec) = checksum {
         spec.validate()?;
@@ -140,6 +152,11 @@ pub fn download_to_cache(
             return Ok(dest);
         }
         fs::remove_file(&dest)?;
+    }
+    if offline {
+        return Err(RezError::BuildSystem(format!(
+            "REZ_OFFLINE=true: no verified cached archive for {url}"
+        )));
     }
     let mut metadata = if cache_metadata(&metadata_path)?.is_some() {
         let file = open_file(&metadata_path, OpenOptions::new().read(true))?;
@@ -394,6 +411,48 @@ mod tests {
     use std::net::TcpListener;
     use std::path::PathBuf;
     use std::thread;
+
+    #[test]
+    fn offline_download_accepts_valid_cache_and_rejects_misses_without_http() {
+        let root = tempfile::tempdir().unwrap();
+        let url = "http://127.0.0.1:1/not-listening.zip";
+        let error =
+            super::download_to_cache_with_policy(url, root.path(), "archive.zip", None, None, true)
+                .unwrap_err();
+        assert!(error.to_string().contains("REZ_OFFLINE=true"), "{error}");
+        let entry = root
+            .path()
+            .join(crate::util::hex_encode(Sha256::digest(url.as_bytes())));
+        let cached = entry.join("payload/archive.zip");
+        std::fs::write(&cached, b"cached").unwrap();
+        let checksum = super::ChecksumSpec {
+            algorithm: "sha256".into(),
+            hash: crate::util::hex_encode(Sha256::digest(b"cached")),
+        };
+        assert_eq!(
+            super::download_to_cache_with_policy(
+                url,
+                root.path(),
+                "archive.zip",
+                Some(&checksum),
+                None,
+                true
+            )
+            .unwrap(),
+            std::fs::canonicalize(&cached).unwrap()
+        );
+        std::fs::write(&cached, b"corrupt").unwrap();
+        let error = super::download_to_cache_with_policy(
+            url,
+            root.path(),
+            "archive.zip",
+            Some(&checksum),
+            None,
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("REZ_OFFLINE=true"));
+    }
 
     fn loopback_agent() -> ureq::Agent {
         ureq::Agent::config_builder()
