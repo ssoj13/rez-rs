@@ -21,9 +21,13 @@ import tempfile
 
 FAMILIES = ("platform", "arch", "os")
 MANAGED = frozenset({"name", "version", "description", "requires", "tools", "commands"})
-# Reviewed 2026-10-02: Bootstrap117/0010.prep/1050.rez_git/src/rez/bind/platform.py.
-# Only this exact legacy callback may migrate to the native shared OS baseline.
-LEGACY_PLATFORM_COMMANDS = "088b814075289f915fcfd91229bdfc199ac9d8453c1a81c06304447466b20980"
+# Only these exact reviewed platform callbacks may migrate to the current binder output:
+# - Bootstrap117/0010.prep/1050.rez_git/src/rez/bind/platform.py (reviewed 2026-10-02);
+# - rez-rs before 2026-10-08, which appended system.paths ahead of package commands.
+LEGACY_PLATFORM_COMMANDS = frozenset({
+    "088b814075289f915fcfd91229bdfc199ac9d8453c1a81c06304447466b20980",
+    "45bef3894769037bee8c07705e23f94ba184819935c77d6598fd0228183a4158",
+})
 
 
 class BindError(RuntimeError):
@@ -189,7 +193,8 @@ def refresh_system_bindings(
                     old, old_callbacks, extensions = _definition(previous.decode("utf-8"), target)
                     if old.get("name") != family or old.get("version") != version:
                         raise BindError(f"Existing system package identity mismatch: {target}")
-                    legacy = family == "platform" and old_callbacks == {"commands": LEGACY_PLATFORM_COMMANDS}
+                    legacy = (family == "platform" and set(old_callbacks) == {"commands"}
+                              and old_callbacks["commands"] in LEGACY_PLATFORM_COMMANDS)
                     if old.get("commands") or (old_callbacks and old_callbacks != callbacks and not legacy):
                         raise BindError(f"Custom system commands require review: {target}")
                     if old.get("requires") and old.get("requires") != values.get("requires"):

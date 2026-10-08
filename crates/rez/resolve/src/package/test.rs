@@ -1891,7 +1891,7 @@ mod tests {
         // Use a command that will fail with a known exit code
         #[cfg(windows)]
         tests.insert("fail_test".to_string(), json!("cmd /C exit 42"));
-        // A built-in: the context PATH has no system directories without a platform package.
+        // A built-in, so the result does not depend on host tools on the context PATH.
         #[cfg(not(windows))]
         tests.insert("fail_test".to_string(), json!("exit 42"));
 

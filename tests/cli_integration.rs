@@ -1421,8 +1421,8 @@ fn test_cli_bundle_custom_definition_survives_relocation() {
         let unavailable = root.join("unavailable_repository");
         std::fs::rename(&repository, &unavailable).unwrap();
         let context = moved.join("context.rxt");
-        // Shell built-ins only: without a platform package the context PATH
-        // has no system directories, so external tools such as `cat` are absent.
+        // Shell built-ins only, so the result does not depend on host tools
+        // such as `cat` on the context PATH.
         let command = if cfg!(windows) {
             "type \"%BUNDLE_ROOT%\\payload.txt\""
         } else {

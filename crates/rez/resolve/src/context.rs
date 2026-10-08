@@ -2302,10 +2302,7 @@ impl ResolvedContext {
         if self.append_sys_path {
             let configured = &crate::config::CONFIG.standard_system_paths;
             let paths = if configured.is_empty() {
-                crate::environment::system_paths(
-                    crate::platform::Platform::current(),
-                    &std::env::vars().collect(),
-                )
+                repository::package::bind::discover_sys_paths()
             } else {
                 configured.clone()
             };
