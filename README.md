@@ -13,7 +13,7 @@ A Rust port of the [Rez package manager](https://github.com/AcademySoftwareFound
 - Build adapters for CMake, Make, Python, Pip, Cargo, Go, Zig, Node.js, Bun, SCons, vcpkg, Conan, extraction, custom commands, and no-op builds. Adapter presence does not establish complete native acceptance.
 - An optional egui GUI, enabled by the default `gui` feature.
 
-The CLI embeds its Python interpreter. Software managed by Rez and the tools selected by package recipes still need to be available. CPython extension modules such as NumPy cannot be imported into the embedded VM. The executable does not provide Python Rez's complete importable API or the custom `rez.bld` API.
+The CLI embeds its Python interpreter. Software managed by Rez and the tools selected by package recipes still need to be available. CPython extension modules such as NumPy cannot be imported into the embedded VM. A separate CPython distribution provides initial Rez-compatible imports, with Rust-specific access in `rez.rs`. Full Python API parity and the custom `rez.bld` API remain outside the accepted scope; see [Python API](docs/mdbook/src/python-api.md).
 
 ## Build
 
@@ -37,9 +37,9 @@ Build and runtime receipts currently cover Windows. Native Linux/macOS and GUI a
 
 ## Download the Windows executable
 
-The [CI and release workflow](.github/workflows/ci.yml) checks formatting, Python helpers, documentation, release workspace tests, and strict Clippy. It stages the default-feature Windows x86_64 executable through `bootstrap.py p` and verifies the copied binary and source archive before upload.
+The [CI and release workflow](.github/workflows/ci.yml) checks formatting, Python helpers, documentation, release workspace tests, and strict Clippy. It stages the default-feature Windows x86_64 executable and CPython module through `bootstrap.py p`, then verifies the binaries, source archive, and extracted Python distribution before upload.
 
-Successful trusted runs provide a `windows-x86_64` artifact containing `rez.exe`, its SHA-256 checksum, and a verification receipt. Pushing a `v<version>` tag matching `Cargo.toml` publishes those assets as a GitHub release; tags containing a prerelease suffix create a prerelease. Fork pull requests run source checks only while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
+Successful trusted runs provide a `windows-x86_64` artifact containing `rez.exe`, its SHA-256 checksum, and a verification receipt. The separate `windows-python` artifact contains `rez-rs-python.zip` with `rez/rs.pyd` and compatibility wrappers; the same archive is tested on CPython 3.13 and 3.10. Pushing a `v<version>` tag matching `Cargo.toml` publishes those assets as a GitHub release; tags containing a prerelease suffix create a prerelease. Fork pull requests run source checks only while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
 
 The executable carries its interpreter, standard library, configuration template, and standard binders. No companion Python source files are needed for `rez --write-config` or `rez bind --quickstart`. Quickstart binds software already installed on the host; Python, pip, and setuptools can be skipped when unavailable. A bound CPython environment still depends on its installed base Python.
 
@@ -75,6 +75,10 @@ Review the generated `~/.rez/rezconfig.py` to select your package repositories. 
 
 For a package build example, see [examples](examples/README.md). Each example names its required build tools and contains a package recipe.
 
+## Python API
+
+Compatibility imports use `rez.version`, `rez.packages`, and `rez.resolved_context`; our native additions use `rez.rs`. `python bootstrap.py p --force` stages this separate package under `dist/python/<version>`. Extract its ZIP and add the extraction directory to `PYTHONPATH`; a `.pyd` cannot be imported from inside a ZIP. Use a separate environment from upstream Rez because both provide the `rez` package. See [supported APIs and limitations](docs/mdbook/src/python-api.md).
+
 ## Embedded Python
 
 RustPython executes Python package definitions, configuration, and Rex commands. Most components, including stdlib and SRE, come from crates.io. Four components remain local through Cargo path patches because they retain active compatibility fixes. Regression coverage is kept in the project test suites. See [why RustPython is bundled](docs/mdbook/src/rustpython-vendoring.md).
@@ -90,7 +94,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 Root-only `cargo test` does not run the libraries moved into the functional crates. A workspace test run also selects the GUI member. Some native builder tests are explicitly ignored in the ordinary run and must be selected separately.
 
-The latest recorded migration campaign passed 1,490 Rust tests, with six ignored native scenarios passing separately. Those are historical receipts for the recorded source and binary, not a promise that every platform or future change passes. [Plan30](docs/plans/plan30.md) summarizes their scope; detailed earlier receipts remain with the previous repository.
+The current Windows release workspace campaign passed 1,507 test/doc-test executions with zero failures and seven ignored scenarios. Strict workspace Clippy passed, and the same Python API archive passed 14 acceptance tests on each of CPython 3.13 and 3.10. Ignored native scenarios, GUI interaction, and Unix runtime acceptance remain separate gates. [Plan30](docs/plans/plan30.md) summarizes their scope; detailed earlier receipts remain with the previous repository.
 
 ## Documentation
 
@@ -104,7 +108,7 @@ Build the documentation book with `mdbook build docs/mdbook`. See the [documenta
 
 ## Source packages
 
-`python bootstrap.py p` builds the release CLI and stages `dist/rez_rs/<version>` with `package.py`, the executable, and `rez-rs.zip`. Use `--force` to replace an existing staged version. Installer helpers are copied beside the package.
+`python bootstrap.py p` builds the release CLI and CPython API. It stages `dist/rez_rs/<version>` with `package.py`, the executable, and `rez-rs.zip`. Use `--force` to replace an existing staged version. Installer helpers are copied beside the package.
 
 The installer requires explicit destination paths:
 

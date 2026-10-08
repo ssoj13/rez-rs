@@ -14,7 +14,7 @@ The installer now requires `--repository-root`; `--rez-root` is the explicit hos
 
 Root LICENSE and NOTICE files now match the existing Apache-2.0 declaration and source headers. Functional crate manifests declare the same license; upstream and vendored licenses remain intact.
 
-Tracked REPL history, a machine-specific CMake preset, generated SCons binaries/object/signature files, and generated Python egg-info were removed. Byte inspection of the staged archive exposed a local path in generated SCons output before publication; the source writer now also excludes generated example output while retaining upstream binary fixtures. Source exports exclude local environment files, history, editor/agent state, generated documentation, build output, and user CMake presets. Installer archive validation enforces those exclusions.
+Tracked REPL history, a machine-specific CMake preset, generated SCons binaries/object/signature files, and generated Python egg-info were removed. Byte inspection of the staged archive exposed a local path in generated SCons output before publication; the source writer now also excludes generated example output while retaining upstream binary fixtures. Source exports exclude local environment files, history, editor/agent state, generated documentation, build output, user CMake presets, and the root `packages/` external recipe queue. Public examples and nested test fixtures remain included. Installer archive validation enforces those exclusions.
 
 The book and public project notes now live together under `docs/mdbook/`. The `docs/README.md` index points to Plan30, the only retained work plan; previous plans and audit reports are removed. `packaging/README.md` explains the canonical installer source. Project instruction files use `AGENTS.md`; generic private tooling documentation is excluded from source exports. Book output remains under `docs/build/`, preserving the source-writer and installer exclusion contract.
 
@@ -24,13 +24,13 @@ The former upstream Rez reference checkout, gitlink, submodule configuration, an
 
 ## Verification scope
 
-The Python test suite passes 23 tests, including five new source-export/installer regressions. Workspace Rust formatting passes. Git whitespace checks pass in the parent and reference worktrees.
+The initial publication Python test suite passed 23 tests, including five source-export/installer regressions. The current helper suite passes 30 tests, including Python distribution staging/failure preservation and root recipe-queue exclusion while retaining nested fixtures. Workspace Rust formatting passes. Git whitespace checks pass in the parent and reference worktrees.
 
 The shell escaping fixture changes only its example environment-variable name; its behavior remains the space-quoting contract. The targeted Rust result and regenerated source archive receipt are recorded in `dist/publication-verification.json`. The first targeted Rust attempt hit the runner's 60-second timeout during dependency compilation; a detached continuation was used for the actual result.
 
 The later stdlib/SRE registry replacement has a fresh default-feature Windows release build and 27 passing Python/SRE/TLS tests across six targets, with 1,566 SRE reference cases inside one test. Its current package/source closure is recorded in `dist/registry-transition-verification.json`; [runtime vendoring](rustpython-vendoring.md) records the exact boundary.
 
-No new full runtime campaign, GUI/platform matrix, host activation, external package installation, or remote publication is claimed. Historical binary acceptance remains attached to the binary that was tested; later documentation and installer edits do not extend that acceptance.
+A later CI baseline passed one full release workspace campaign: 1,507 test/doc-test executions, zero failures and seven ignored scenarios, including the new no-host-Python quickstart consumer. Strict release workspace Clippy passed separately. These receipts precede the addition of the CPython bridge; its own acceptance is recorded in [Python API](python-api.md). After adding the bridge, a fresh full workspace campaign again passed 1,507 test/doc-test executions with zero failures and seven ignored scenarios; strict release all-target workspace Clippy passed again. The same extracted Windows abi3 archive passed 14 Python API acceptance tests on each of CPython 3.13.11 and 3.10.18. No GUI/platform matrix, host activation, or external recipe installation is established by these gates. Historical binary acceptance remains attached to the binary that was tested; later documentation and installer edits do not extend that acceptance.
 
 ## Remaining publication boundaries
 
@@ -41,6 +41,8 @@ No new full runtime campaign, GUI/platform matrix, host activation, external pac
 | Vendored runtime | Four RustPython components retain active fixes. The unmodified stdlib and SRE copies have been replaced with pinned registry dependencies, and their regression coverage is retained. See [RustPython vendoring](rustpython-vendoring.md). |
 | Crate layout | Application crates are grouped under `crates/rez/`; vendored runtime components remain at `crates/rustpython*/`. A future grouping change needs path, manifest, link, test, and archive updates. |
 | Release evidence | Regenerate and verify source closure after the final source/doc edits. Build and test a fresh binary for any later production-code or runtime-dependency changes. Preserve third-party license and attribution files in the delivered closure. |
+
+The local `packages/` queue was separately scrubbed of private environment prefixes, helper import names, internal URLs and CI-template references. All 79 Python recipe sources parsed successfully; recipe builds/installations were not run. Its documented external `rez_build` dependency remains unresolved, and the queue has since moved to the separate private `rez-rs-packages` repository, outside the main source exports. Vendor manifest signatures and installer message flags retain their original bytes.
 
 The source scan found no obvious committed credential material in its inspected patterns. It is a static review, not proof that arbitrary credentials or confidential material cannot exist. Generated archives were inspected separately.
 

@@ -70,6 +70,10 @@ jobs:
       - name: Fetch locked dependencies
         env:
           DEPENDENCIES_TOKEN: ${{ secrets.DEPENDENCIES_TOKEN }}
+          DEPENDENCY_NODES_SSH_KEY: ${{ secrets.DEPENDENCY_NODES_SSH_KEY }}
+          DEPENDENCY_BOX_SSH_KEY: ${{ secrets.DEPENDENCY_BOX_SSH_KEY }}
+          DEPENDENCY_WIDGETS_SSH_KEY: ${{ secrets.DEPENDENCY_WIDGETS_SSH_KEY }}
+          DEPENDENCY_LAYOUT_SSH_KEY: ${{ secrets.DEPENDENCY_LAYOUT_SSH_KEY }}
         run: python ci/fetch_dependencies.py
       - name: Cache compiled dependencies
         if: github.event_name != 'pull_request'
@@ -77,12 +81,12 @@ jobs:
         with:
           path: target
           key: windows-x86_64-stable-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
-      - name: Build and stage release
-        run: python bootstrap.py p --force
       - name: Test release workspace
         run: cargo test --locked --offline --workspace --release -- --test-threads=1
       - name: Clippy
         run: cargo clippy --locked --offline --workspace --release --all-targets -- -D warnings
+      - name: Build and stage release
+        run: python bootstrap.py p --force
       - name: Verify staged binary and sources
         id: package
         shell: pwsh
@@ -92,6 +96,31 @@ jobs:
           $packages = @(Get-ChildItem dist/rez_rs -Directory)
           if ($packages.Count -ne 1) { throw 'Expected exactly one staged version' }
           "directory=$($packages[0].FullName)" >> $env:GITHUB_OUTPUT
+      - name: Verify CPython 3.13 distribution
+        id: python
+        shell: pwsh
+        run: |
+          python ci/verify_python_api.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @(Get-ChildItem dist/python -Directory)
+          if ($packages.Count -ne 1) { throw 'Expected exactly one staged Python version' }
+          "directory=$($packages[0].FullName)" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.10'
+      - name: Verify the same abi3 distribution on CPython 3.10
+        run: python ci/verify_python_api.py
+      - name: Upload verified Python package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-python
+          path: |
+            ${{ steps.python.outputs.directory }}/rez-rs-python.zip
+            ${{ steps.python.outputs.directory }}/rez-rs-python.zip.sha256
+            ${{ steps.python.outputs.directory }}/python-verification.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
       - name: Upload verified executable
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -117,12 +146,17 @@ jobs:
         with:
           name: windows-x86_64
           path: release
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: windows-python
+          path: release
       - name: Verify release assets and version
         env:
           TAG: ${{ github.ref_name }}
         run: |
           cd release
           sha256sum --check rez.exe.sha256
+          sha256sum --check rez-rs-python.zip.sha256
           python - <<'PY'
           import json, os
           from pathlib import Path
@@ -141,5 +175,5 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --verify-tag --draft --generate-notes --title "$TAG"
           fi
-          gh release upload "$TAG" release/rez.exe release/rez.exe.sha256 release/verification.json --clobber
+          gh release upload "$TAG" release/rez.exe release/rez.exe.sha256 release/verification.json release/rez-rs-python.zip release/rez-rs-python.zip.sha256 release/python-verification.json --clobber
           gh release edit "$TAG" --draft=false --prerelease="$prerelease"

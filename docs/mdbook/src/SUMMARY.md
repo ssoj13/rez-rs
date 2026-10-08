@@ -29,6 +29,7 @@
 
 - [Package Format](package-format.md)
 - [Rex Commands](rex-commands.md)
+- [Python API](python-api.md)
 - [Terminology](terminology.md)
 
 ---

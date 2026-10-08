@@ -20,7 +20,9 @@ package under dist/rez_rs/<version>/ containing package.py, the Cargo-produced
 CLI executable (rez.exe on Windows), and rez-rs.zip. The source archive excludes
 Git metadata and generated build artifacts. Existing versions are preserved
 unless --force replaces that version. The shared native-alias installer support
-modules and installer are copied verbatim to dist/, outside the two-file payload.
+modules and installer are copied verbatim to dist/, outside the Rez payload.
+The CPython facade and native rez.rs extension are staged separately under
+dist/python/<version>/ and in its rez-rs-python.zip archive.
 Host activation refreshes platform/arch/os from the native binder with backups.
 The install command installs metadata-derived native aliases beside Cargo's CLI.
 """
@@ -201,6 +203,8 @@ def source_archive_path_is_excluded(relative: Path) -> bool:
     if any(part in SOURCE_ARCHIVE_EXCLUDES or part.startswith(".env.")
            or part.endswith(".egg-info") for part in relative.parts):
         return True
+    if relative.parts[:1] == ("packages",):
+        return True
     if relative.parts[:2] == ("docs", "build"):
         return True
     if relative.parts[:1] == ("examples",):
@@ -235,6 +239,67 @@ def write_source_archive(destination: Path) -> None:
                 archive.write(source, Path("rez-rs") / source.relative_to(ROOT_DIR))
 
 
+def stage_python_api(version: str) -> int:
+    """Build an abi3 extension and atomically stage the separate Python distribution."""
+    import sysconfig
+    if sys.implementation.name != "cpython" or sys.version_info < (3, 10) or sysconfig.get_config_var("Py_GIL_DISABLED"):
+        print("Packaging requires CPython 3.10+ with the GIL enabled.", file=sys.stderr)
+        return 2
+    extension_env = os.environ.copy()
+    extension_env["PYO3_PYTHON"] = sys.executable
+    extension_env["PYO3_BUILD_EXTENSION_MODULE"] = "1"
+    code = run(cargo("build", "--locked", "--release", "-p", "rez-python-api"), env=extension_env)
+    if code:
+        return code
+    library_name = "rs.dll" if os.name == "nt" else ("librs.dylib" if sys.platform == "darwin" else "librs.so")
+    extension_name = "rs.pyd" if os.name == "nt" else "rs.abi3.so"
+    library = ROOT_DIR / "target" / "release" / library_name
+    if not library.is_file():
+        print(f"CPython extension was not produced: {library}", file=sys.stderr)
+        return 1
+    family = DIST_DIR / "python"
+    destination = family / version
+    family.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".{version}-", dir=family) as temporary:
+        staging = Path(temporary) / version
+        package = staging / "rez"
+        package.mkdir(parents=True)
+        for source in sorted((ROOT_DIR / "crates" / "rez" / "python-api" / "python" / "rez").glob("*.py")):
+            shutil.copy2(source, package / source.name)
+        shutil.copy2(library, package / extension_name)
+        for name in ("LICENSE", "NOTICE"):
+            shutil.copy2(ROOT_DIR / name, staging / name)
+        licenses = staging / "third-party-licenses"
+        licenses.mkdir()
+        for source in sorted((ROOT_DIR / "crates" / "rez" / "python-api" / "licenses").glob("*")):
+            shutil.copy2(source, licenses / source.name)
+        import platform
+        import struct
+        metadata = {
+            "version": version, "module": "rez.rs", "extension": extension_name,
+            "python_abi": "abi3", "minimum_python": "3.10",
+            "platform": sys.platform, "machine": platform.machine(), "pointer_bits": struct.calcsize("P") * 8,
+        }
+        (staging / "python-api.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        archive_path = staging / "rez-rs-python.zip"
+        members = [*sorted(package.iterdir()), *sorted(licenses.iterdir()),
+                   staging / "LICENSE", staging / "NOTICE", staging / "python-api.json"]
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            for source in members:
+                archive.write(source, source.relative_to(staging))
+        previous = Path(temporary) / "previous"
+        if destination.exists():
+            os.replace(destination, previous)
+        try:
+            os.replace(staging, destination)
+        except OSError:
+            if previous.exists():
+                os.replace(previous, destination)
+            raise
+    print(f"CPython package staged at {destination}")
+    return 0
+
+
 def run_package(args: argparse.Namespace) -> int:
     """Build a Release executable and create an installable Rez package in dist/."""
     version = cargo_package_version()
@@ -256,6 +321,10 @@ def run_package(args: argparse.Namespace) -> int:
     if not RELEASE_REZ.is_file():
         print(f"Release executable was not produced: {RELEASE_REZ}", file=sys.stderr)
         return 1
+
+    code = stage_python_api(version)
+    if code:
+        return code
 
     try:
         DIST_DIR.mkdir(parents=True, exist_ok=True)
@@ -430,7 +499,7 @@ def make_parser() -> argparse.ArgumentParser:
     package_parser = commands.add_parser(
         "package",
         aliases=["p"],
-        help=f"Build the Release CLI and create dist/{REZ_PACKAGE_NAME}/<version> with its source archive.",
+        help=f"Build the Release CLI, CPython API, and dist/{REZ_PACKAGE_NAME}/<version> sources.",
     )
     package_parser.add_argument(
         "--force",

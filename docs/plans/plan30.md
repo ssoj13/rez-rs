@@ -4,7 +4,7 @@ Updated: 2026-10-07. This is the only retained work plan. Previous plans and aud
 
 ## Current status
 
-The workspace contains nine functional crates under `crates/rez/`; the root package builds the CLI. See [crate architecture](../mdbook/src/architecture-crates.md).
+The workspace contains ten functional crates under `crates/rez/`; the root package builds the CLI. See [crate architecture](../mdbook/src/architecture-crates.md).
 
 RustPython is pinned to 0.6.0. Stdlib and SRE use crates.io; four active local patches remain. The registry replacement passed a fresh default-feature Windows release build and 27 scoped Rust tests across six Python/SRE/TLS targets, plus 23 Python helper tests. The earlier migration campaign recorded 1,496 unique executed Rust tests, strict workspace Clippy, and 14 passing doc-tests; those historical gates were not repeated for the registry replacement. See [runtime ownership and scoped evidence](../mdbook/src/rustpython-vendoring.md).
 
@@ -16,8 +16,11 @@ The book lives in `docs/mdbook`; generated HTML is excluded from source packages
 - [x] Validate the workflow with actionlint 1.7.12 and pass 25 Python helper tests, including credential-host scoping and cleanup after a failed fetch.
 - [x] Confirm a relocated Windows executable generates the commented default config and runs frozen Python with no host Python on PATH. Quickstart creates platform/arch/os/rez definitions; the unsupported legacy rezgui entry was removed from its requested list.
 - [x] Verify the staged source archive (739 members, exact bytes and CRCs), canonical helper equality, frozen runtime, no-Python quickstart, bound Rez execution, and installed CPython execution. The native Rez binding no longer declares an external Python dependency.
-- [ ] Complete the final-source release workspace test and strict Clippy campaign; the initial workspace campaign passed 1,506 test/doc-test executions with seven ignored scenarios, before the final binder changes and new regression target.
-- [ ] Accept a hosted GitHub run. Four private GUI repositories require the Actions secret `DEPENDENCIES_TOKEN` with Contents: Read access, or public readability. Fork PRs run source checks only until that dependency boundary is removed.
+- [x] Before adding the CPython bridge, the final binder source passed one full release workspace campaign: 1,507 test/doc-test executions, zero failures and seven ignored scenarios. Strict release all-target workspace Clippy passed separately. These results do not establish acceptance of later Python API changes.
+- [x] Verify the new `rez-python-api` bridge and extracted `rez.rs` distribution: 14 acceptance tests passed on each of CPython 3.13.11 and 3.10.18 against the same Windows abi3 ZIP; all 14 archive members matched canonical bytes and CRCs. Strict release all-target workspace Clippy passed after the bridge changes.
+- [x] After adding the CPython bridge, one full release workspace campaign passed: 1,507 test/doc-test executions, zero failures, seven ignored scenarios, across 46 targets. The interrupted compile attempt is not a test receipt.
+- [x] Configure read-only deploy keys for the four private GUI repositories and their corresponding Actions Secrets. Each key passed a fresh SSH read check; private key scratch files were removed. The CI fetch helper has 30 passing Python helper tests, including credential isolation and cleanup.
+- [ ] Accept a hosted GitHub run with the configured deploy-key credentials. Fork PRs run source checks only while the dependency repositories remain private.
 
 ## Next execution order
 
@@ -69,6 +72,7 @@ Current owner: [build-system adapters and orchestration](../../crates/rez/build-
 - [ ] Complete common typed options/artifact/acquisition/offline/checksum contracts across adapters; specify Node/Bun missing/empty output behavior and public passthrough boundaries.
 - [ ] Derive Nim application, .NET, Xcode, and uv packaging requirements from actual consumers. Nim/.NET/Xcode are not members of the current BuildSystemType enum; uv sync/run alone does not establish packaging.
 - [ ] Implement/accept standalone ecosystem dispatch separately from local `rez build`: shared identity/version precedence/provenance/destination/list/remove/publication and SemVer/range conversion, including caret 0.x, prerelease/build metadata, and observed versus pinned versions.
+- [x] Add an initial CPython compatibility facade under `rez.version`, `rez.packages`, and `rez.resolved_context`, with native additions exclusively in `rez.rs`. Ownership and explicit unsupported surfaces are documented in [Python API](../mdbook/src/python-api.md). This does not supply the complete upstream Python API.
 - [ ] Resolve the observed external-CPython `rez.cli._main` import boundary for concrete recipe/toolkit consumers. Frozen embedded modules and native alias visibility do not install the Rez Python package into external CPython.
 
 The 2026-10-03 user decision remains: private `rez.bld` namespace/signature parity is optional. Preserve required behavior through existing Rust adapters; choose Python compatibility only for an identified consumer. Original Rez core Python API and standalone ecosystem obligations remain.

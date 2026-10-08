@@ -38,7 +38,7 @@ class SourcePublicationTests(unittest.TestCase):
         source = self.root / "source"
         public = ["Cargo.toml", "LICENSE", "README.md", "docs/mdbook/src/installation.md",
                   "crates/patch/tests/vendor/launcher.exe",
-                  "crates/patch/tests/object.obj"]
+                  "crates/patch/tests/object.obj", "tests/fixtures/packages/sample/package.py"]
         private = [".env", ".env.local", "nested/.env.production",
                    ".repl_history.txt", "examples/conan/CMakeUserPresets.json",
                    ".git/config", ".claude/notes.md", ".codex/state.json",
@@ -47,7 +47,8 @@ class SourcePublicationTests(unittest.TestCase):
                    "examples/scons/main.obj", "examples/scons/example.exe",
                    "examples/scons/.sconsign.dblite",
                    "examples/python/example.egg-info/PKG-INFO",
-                   "examples/cmake/build/Makefile", "examples/cmake/CMakeFiles/state"]
+                   "examples/cmake/build/Makefile", "examples/cmake/CMakeFiles/state",
+                   "packages/private-recipe/package.py"]
         for name in public + private:
             path = source / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +67,7 @@ class SourcePublicationTests(unittest.TestCase):
                      "examples/scons/main.obj", "examples/scons/example.exe",
                      "examples/scons/.sconsign.dblite",
                      "examples/python/example.egg-info/PKG-INFO",
-                     "examples/cmake/build/Makefile"]:
+                     "examples/cmake/build/Makefile", "packages/private-recipe/package.py"]:
             with self.subTest(name=name):
                 archive_path = self.root / "incoming.zip"
                 with zipfile.ZipFile(archive_path, "w") as archive:

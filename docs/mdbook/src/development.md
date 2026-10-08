@@ -59,11 +59,15 @@ For interactive development, `cargo check --locked --workspace` avoids linking. 
 
 [The workflow](https://github.com/ssoj13/rez-rs/blob/main/.github/workflows/ci.yml) runs on pushes, pull requests, and manual dispatch. Source checks run on Ubuntu; the release binary and runtime acceptance run on Windows x86_64. Ordinary workspace tests exclude explicitly ignored native scenarios, and this workflow does not establish GUI interaction or Linux/macOS runtime acceptance.
 
-The default GUI currently needs four private repositories: `ssoj13/nodes-rs`, `ssoj13/box-rs`, `ssoj13/wgpu-widgets-rs`, and `ssoj13/graph-layout-rs`. Add a fine-grained token with **Contents: Read** access to those repositories as the Actions secret `DEPENDENCIES_TOKEN` in rez-rs. The dependency-fetch step translates SSH URLs to HTTPS without changing the lockfile. Its temporary credential helper is removed before build and test steps; no token is written to repository files or Cargo configuration. If those dependencies become publicly readable, the same fetch step works without the secret.
+The default GUI currently needs four private repositories: `ssoj13/nodes-rs`, `ssoj13/box-rs`, `ssoj13/wgpu-widgets-rs`, and `ssoj13/graph-layout-rs`. Trusted CI uses a separate read-only deploy key for each repository, stored as `DEPENDENCY_NODES_SSH_KEY`, `DEPENDENCY_BOX_SSH_KEY`, `DEPENDENCY_WIDGETS_SSH_KEY`, and `DEPENDENCY_LAYOUT_SSH_KEY` in rez-rs Actions Secrets. Supply all four together. The fetch helper maps each exact dependency URL to its own SSH identity, verifies GitHub's pinned public host keys from `ci/github_known_hosts`, and removes credentials before subsequent build steps. Public dependencies use HTTPS; the lockfile remains unchanged.
+
+Alternatively, provide a fine-grained token with **Contents: Read** access to those four repositories as `DEPENDENCIES_TOKEN`. Its temporary HTTPS credential helper only answers requests for github.com. Private key files and token helpers live in a temporary directory removed when Cargo exits, including failure paths. The four key values and the token are removed from Cargo's environment in SSH mode; no private credential is stored in source or Cargo configuration. Host-key pins were obtained from GitHub's HTTPS `/meta` endpoint. Update them explicitly after verifying a GitHub host-key rotation.
 
 Fork pull requests run formatting, Python helper tests, and the book build. Full Windows builds run on pushes, manual dispatch, and pull requests from this repository.
 
 The Windows job builds through `python bootstrap.py p --force`, then runs locked release workspace tests and strict Clippy. `python ci/verify_dist.py --require-python` checks source archive membership, bytes and CRCs, canonical installer helpers, binary equality, a relocated frozen interpreter, generated configuration, quickstart with no host Python on PATH, and a bound installed Python consumer.
+
+The separate Python archive under `dist/python/<version>` includes `rez/rs.pyd` and the compatibility facade. `python ci/verify_python_api.py` checks its exported bytes and runs acceptance after extraction in an isolated CPython process. CI tests the same archive on CPython 3.13 and 3.10; download `windows-python` for those files. See [Python API ownership and supported imports](python-api.md).
 
 Download the `windows-x86_64` artifact from a successful Actions run. It contains the verified `rez.exe` from `dist/rez_rs/<version>`, `rez.exe.sha256`, and `verification.json`. Verify the executable in PowerShell:
 
@@ -72,7 +76,7 @@ Download the `windows-x86_64` artifact from a successful Actions run. It contain
 Get-Content ./rez.exe.sha256
 ```
 
-For a release, update the Cargo package version and lockfile, commit the change, and push a matching tag, such as `v0.1.0`. After all gates pass, the release job publishes the executable, checksum, and receipt. A tag such as `v0.1.0-alpha.1` requires the same prerelease version in Cargo and creates a GitHub prerelease.
+For a release, update the Cargo package version and lockfile, commit the change, and push a matching tag, such as `v0.1.0`. After all gates pass, the release job publishes the executable and Python archive, their checksums, and receipts. Update the `rez-python-api` crate version together with the root Cargo package version. A tag such as `v0.1.0-alpha.1` requires the same prerelease version in Cargo and creates a GitHub prerelease.
 
 ## Add a CLI command
 

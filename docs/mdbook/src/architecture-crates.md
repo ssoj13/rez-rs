@@ -1,6 +1,6 @@
 # Crate architecture
 
-The root `rez-rs` package builds the `rez` CLI. Functional libraries are grouped under `crates/rez/`; their Cargo package names have no `rez-` prefix. CLI code and tests import these libraries directly.
+The root `rez-rs` package builds the `rez` CLI. Functional libraries are grouped under `crates/rez/`; most Cargo package names have no `rez-` prefix. The CPython bridge is the `rez-python-api` package and exports the `rs` native library. CLI code and tests import these libraries directly.
 
 ## Ownership and dependencies
 
@@ -16,6 +16,7 @@ The following table lists direct normal dependencies between the functional crat
 | [rex](https://github.com/ssoj13/rez-rs/blob/main/crates/rez/rex/README.md) | Rex actions, shared action decoding, shell interpreters, wrapper generation | `foundation`, `version`, `model` |
 | [resolve](https://github.com/ssoj13/rez-rs/blob/main/crates/rez/resolve/README.md) | Solver/resolver, resolved contexts, suites, bundles, status, package tests, optional AMQP | `foundation`, `version`, `model`, `python-runtime`, `repository`, `rex` |
 | [build-system](https://github.com/ssoj13/rez-rs/blob/main/crates/rez/build-system/src/builders/README.md) | Build orchestration/adapters, download/extraction, Pip, release hooks | `foundation`, `version`, `model`, `python-runtime`, `repository`, `rex`, `resolve` |
+| `python-api` (`rez-python-api`) | CPython extension `rez.rs` and initial Rez-compatible Python facade | `foundation`, `version`, `model`, `repository`, `resolve` |
 | `gui` | Package browser, dependency graph, tree view, solve/export panels | `foundation`, `version`, `model`, `repository`, `resolve` |
 
 Dependencies flow toward lower layers. `foundation` and `version` support the Python runtime and model; repository and Rex depend on the model; resolve combines those components; build-system and GUI consume resolve. No functional crate depends on the root CLI package.
@@ -48,7 +49,7 @@ cargo test -p build-system --lib
 cargo test --test cli_integration
 ```
 
-`bootstrap.py b` builds the release workspace. `bootstrap.py p` builds the release CLI and prepares its distribution payload. The executable remains `rez` / `rez.exe`, and the root package remains version `0.1.0`.
+`bootstrap.py b` builds the release workspace. `bootstrap.py p` builds the release CLI and CPython bridge, then prepares separate CLI/source and Python distributions. See [Python API](python-api.md). The executable remains `rez` / `rez.exe`, and the root package remains version `0.1.0`.
 
 Root-only `cargo test` does not execute the libraries' moved unit-test targets. Use `cargo test --workspace` for the workspace gate. The workspace selects `gui` as a member, including when the root default features are disabled; use package selection or `--exclude gui` when a check deliberately omits it. Vendored RustPython tests run through their own manifests.
 

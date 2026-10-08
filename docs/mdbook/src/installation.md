@@ -10,6 +10,8 @@ Place `rez.exe` in a directory on PATH. Its Python interpreter, standard library
 
 `rez bind --quickstart` creates definitions for detected software. Platform, architecture, OS, and rez bindings work without a host Python. Binding Python creates a virtual environment using installed CPython; that environment still needs its base Python installation. Missing optional software is skipped. The embedded RustPython interpreter does not install CPython, pip, or setuptools on the host.
 
+The separate `windows-python` artifact and tagged releases also provide `rez-rs-python.zip`, containing `rez/rs.pyd` and initial Rez-compatible wrappers. Extract it before importing and use an isolated CPython environment. See [Python API installation and limits](python-api.md).
+
 ## Build from source
 
 Use Rust 1.95 or newer, Git, and a native compiler/linker. The bootstrap scripts require Python 3.10 or newer; reading Cargo install configuration requires Python 3.11 or newer. Native dependencies may need CMake.

@@ -1,7 +1,7 @@
 rez-rs
 Copyright Contributors to the rez-rs project
 
-This project includes Rust code ported from Rez and a reference snapshot of Rez.
+This project includes Rust code ported from Rez and an embedded RustPython runtime.
 Upstream Rez notice:
 
 Copyright Contributors to the Rez project
@@ -20,7 +20,8 @@ limitations under the License.
 
 Vendored RustPython crates retain the license files in their crate directories.
 The binary-patching crates retain crates/bin-patch/LICENSE.
-The reference Rez tree retains its LICENSE, NOTICE, and vendored dependency licenses.
+The upstream Rez checkout is not bundled.
+The CPython bridge uses PyO3 (MIT OR Apache-2.0).
 Additional Cargo dependencies retain their respective upstream licenses.
 
 rez-rs is an independent port. References to upstream projects identify provenance

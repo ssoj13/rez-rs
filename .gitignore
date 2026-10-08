@@ -6,6 +6,8 @@ target/
 .vscode/
 .mcp.json
 dist/
+# Local external recipe queue; public examples live under examples/.
+/packages/
 .repl_history.txt
 .env
 .env.*

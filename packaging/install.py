@@ -111,6 +111,7 @@ def validate_source_archive(archive_path: Path) -> None:
                     raise InstallError(f"Unexpected source archive root: {name!r}")
                 if (FORBIDDEN_ARCHIVE_PARTS.intersection(member.parts)
                         or any(part.startswith(".env.") or part.endswith(".egg-info") for part in member.parts)
+                        or member.parts[1:2] == ("packages",)
                         or member.parts[1:3] == ("docs", "build")):
                     raise InstallError(f"Generated or VCS content in source archive: {name!r}")
                 if member.parts[1:2] == ("examples",) and (
