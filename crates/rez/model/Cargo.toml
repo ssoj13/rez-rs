@@ -1,0 +1,28 @@
+[package]
+name = "model"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+foundation = { path = "../foundation" }
+version = { path = "../version" }
+python-runtime = { path = "../python-runtime" }
+regex = "1.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml = "0.9"
+toml = { version = "1.1", features = ["preserve_order"] }
+unicode-general-category = "1.1"
+hostname = "0.4"
+whoami = "2"
+dirs = "7"
+sha1 = "0.11"
+sha2 = "0.11"
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

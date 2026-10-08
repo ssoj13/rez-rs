@@ -1,0 +1,10 @@
+{
+  "name": "example_nodejs",
+  "version": "1.0.0",
+  "bin": {
+    "example_nodejs": "bin/example_nodejs.js"
+  },
+  "scripts": {
+    "build": "echo Build complete"
+  }
+}

@@ -1,0 +1,81 @@
+[package]
+name = "rez-rs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Rust implementation of the Rez package manager."
+repository = "https://github.com/ssoj13/rez-rs"
+
+[workspace]
+# Vendored upstream patches retain their own independently runnable test suites.
+exclude = [
+    "crates/rustpython",
+    "crates/rustpython-common",
+    "crates/rustpython-host_env",
+    "crates/rustpython-vm",
+]
+members = [
+    "crates/rez/foundation",
+    "crates/rez/version",
+    "crates/rez/python-runtime",
+    "crates/rez/model",
+    "crates/rez/repository",
+    "crates/rez/resolve",
+    "crates/rez/rex",
+    "crates/rez/build-system",
+    "crates/rez/gui",
+    "crates/bin-patch/crates/bin-patch-elf",
+    "crates/bin-patch/crates/bin-patch-macho"
+]
+
+[[bin]]
+name = "rez"
+path = "src/main.rs"
+
+[dependencies]
+foundation = { path = "crates/rez/foundation" }
+version = { path = "crates/rez/version" }
+python-runtime = { path = "crates/rez/python-runtime" }
+model = { path = "crates/rez/model" }
+repository = { path = "crates/rez/repository" }
+rex = { path = "crates/rez/rex" }
+resolve = { path = "crates/rez/resolve" }
+build-system = { path = "crates/rez/build-system" }
+gui = { path = "crates/rez/gui", optional = true }
+clap = { version = "4", features = ["derive"] }
+regex = "1.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml = "0.9"
+toml = { version = "1.1", features = ["preserve_order"] }
+dirs = "7"
+tempfile = "3"
+sha1 = "0.11"
+sha2 = "0.11"
+rustpython-host_env = "=0.6.0"
+
+[dev-dependencies]
+rustpython-sre_engine = "=0.6.0"
+rustpython-host_env = { version = "=0.6.0", features = ["rustls"] }
+zip = "8"
+rcgen = { version = "0.14.8", default-features = false, features = ["ring", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[features]
+default = ["gui"]
+gui = ["dep:gui"]
+amqp = ["resolve/amqp", "build-system/amqp"]
+
+[profile.release]
+opt-level = "z"
+lto = false
+strip = true
+codegen-units = 1
+panic = "abort"
+
+
+[patch.crates-io]
+rustpython = { path = "crates/rustpython" }
+rustpython-common = { path = "crates/rustpython-common" }
+rustpython-vm = { path = "crates/rustpython-vm" }
+rustpython-host_env = { path = "crates/rustpython-host_env" }

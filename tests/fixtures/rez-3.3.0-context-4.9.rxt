@@ -1,0 +1,62 @@
+{
+    "append_sys_path": true,
+    "arch": "AMD64",
+    "building": false,
+    "caching": true,
+    "created": 1790690663,
+    "default_patch_lock": "no_lock",
+    "failure_description": null,
+    "from_cache": false,
+    "graph": "{'nodes': [((('fillcolor', '#FFFFAA'), ('fontsize', 10), ('style', 'filled,dashed')), [('_1', '~platform==windows'), ('_2', '~arch==AMD64'), ('_3', '~os==windows-10.0.26200.SP0')])], 'edges': []}",
+    "host": "fixture-host",
+    "implicit_packages": [],
+    "load_time": 0.0,
+    "num_loaded_packages": 0,
+    "os": "windows-10.0.26200.SP0",
+    "package_cache_async": false,
+    "package_caching": true,
+    "package_filter": [
+        {
+            "excludes": [
+                "before(example:1000)"
+            ],
+            "includes": [
+                "range(example-2.0+)"
+            ]
+        }
+    ],
+    "package_orderers": [
+        {
+            "descending": false,
+            "packages": [
+                "example"
+            ],
+            "type": "sorted"
+        },
+        {
+            "packages": [
+                "example"
+            ],
+            "rank": null,
+            "timestamp": 1000,
+            "type": "soft_timestamp"
+        }
+    ],
+    "package_paths": [],
+    "package_requests": [],
+    "parent_suite_path": null,
+    "patch_locks": {},
+    "platform": "windows",
+    "requested_timestamp": null,
+    "resolved_ephemerals": [],
+    "resolved_packages": [],
+    "rez_path": "python-rez-3.3.0-fixture",
+    "rez_version": "3.3.0",
+    "serialize_version": "4.9",
+    "solve_time": 0.00015783309936523438,
+    "status": "solved",
+    "suite_context_name": null,
+    "testing": false,
+    "timestamp": 1790690663,
+    "user": "fixture-user"
+}

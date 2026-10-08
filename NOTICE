@@ -1,0 +1,27 @@
+rez-rs
+Copyright Contributors to the rez-rs project
+
+This project includes Rust code ported from Rez and a reference snapshot of Rez.
+Upstream Rez notice:
+
+Copyright Contributors to the Rez project
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Vendored RustPython crates retain the license files in their crate directories.
+The binary-patching crates retain crates/bin-patch/LICENSE.
+The reference Rez tree retains its LICENSE, NOTICE, and vendored dependency licenses.
+Additional Cargo dependencies retain their respective upstream licenses.
+
+rez-rs is an independent port. References to upstream projects identify provenance
+and interoperability targets and do not imply endorsement.

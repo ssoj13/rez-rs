@@ -1,0 +1,10 @@
+[package]
+name = "example_cargo"
+version = "1.0.0"
+edition = "2021"
+
+[workspace]
+
+[[bin]]
+name = "example_cargo"
+path = "src/main.rs"

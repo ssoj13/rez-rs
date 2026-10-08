@@ -1,0 +1,6 @@
+import os
+env = Environment()
+p = env.Program('example_scons', 'main.c')
+install_dir = os.environ.get('PREFIX', '.')
+install_nodes = env.Install(install_dir + '/bin', p)
+env.Alias('install', install_nodes)

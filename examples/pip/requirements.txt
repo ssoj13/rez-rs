@@ -1,0 +1,2 @@
+# Pip build: rez installs current dir with pip install --prefix
+# Empty requirements for example; main package is installed as .

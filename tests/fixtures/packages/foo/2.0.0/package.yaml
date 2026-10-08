@@ -1,0 +1,9 @@
+name: foo
+version: "2.0.0"
+requires:
+  - "bar-2+"
+  - "baz-1"
+tools:
+  - foo_tool
+commands: |
+  env.PATH.append("{root}/bin")

@@ -1,0 +1,8 @@
+[book]
+title = "rez-rs: Experimental Rust Port of Rez"
+authors = ["rez-rs contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../build"

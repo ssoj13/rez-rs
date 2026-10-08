@@ -1,0 +1,5 @@
+name: foo
+version: "1.1.0"
+description: "Foo package"
+requires:
+  - "bar-1+"

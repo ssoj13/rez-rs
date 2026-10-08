@@ -1,0 +1,19 @@
+target/
+.gitnexus/
+.claude/
+.codex/
+.idea/
+.vscode/
+.mcp.json
+dist/
+.repl_history.txt
+.env
+.env.*
+!.env.example
+**/CMakeUserPresets.json
+docs/build/
+__pycache__/
+# Standalone vendor regression commands resolve their own transient lockfiles.
+/crates/rustpython/Cargo.lock
+/crates/rustpython-common/Cargo.lock
+/crates/rustpython-vm/Cargo.lock

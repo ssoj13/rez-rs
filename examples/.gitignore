@@ -1,0 +1,80 @@
+# Rez build dir (used by cmake, make, python, pip, custom, etc.)
+build/
+
+# Cargo (Rust)
+target/
+
+# Python / setuptools / pip
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js / npm / bun
+node_modules/
+
+# SCons
+.sconsign*
+.scons_node_count
+*.os
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.exe
+
+# vcpkg
+vcpkg_installed/
+build/
+x64-windows/
+x64-windows-static/
+x86-windows/
+x86-windows-static/
+arm64-windows/
+
+# Conan
+build/
+.conan/
+conanbuildinfo*
+conaninfo.txt
+conan.lock
+graph_info.json
+
+# CMake (when build/ not used)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.vcxproj*
+*.sln
+*.user
+
+# Make
+*.o
+*.a
+*.d
+*.exe
+*.out
+
+# Extraction temp
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.tar.xz
+!**/archive.zip
+!**/sources.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~

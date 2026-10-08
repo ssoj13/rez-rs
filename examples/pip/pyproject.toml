@@ -1,0 +1,7 @@
+[project]
+name = "example-pip"
+version = "1.0.0"
+description = "Example Pip-built package"
+
+[project.scripts]
+example_pip = "example_pip:main"
