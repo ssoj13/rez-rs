@@ -18,16 +18,15 @@ pub fn system_variant(include_os: bool) -> Vec<String> {
 
 /// Detect current platform and produce BindInfo.
 ///
-/// The platform package is the single Rez package boundary that applies the
-/// canonical system PATH and baseline OS environment to resolved contexts.
+/// The platform package applies the baseline OS environment to resolved
+/// contexts. System PATH entries are not set here: the context appends them
+/// after all package commands (`append_sys_path`), so packages shadow host tools.
 pub fn detect_platform() -> BindInfo {
     let platform = SYSTEM.platform;
     let mut info = BindInfo::new("platform", platform.name());
     info.description = format!("System platform: {}", platform.name());
     info.commands = Some(
         r#"
-for _rez_system_path in system.paths:
-    env.PATH.append(_rez_system_path)
 for _rez_system_key, _rez_system_value in system.environ.items():
     if _rez_system_key.upper() != 'PATH':
         env[_rez_system_key].set(_rez_system_value)
@@ -49,7 +48,7 @@ pub fn detect_arch() -> BindInfo {
 /// Detect current OS and produce BindInfo.
 ///
 /// Rez's OS package depends on platform and architecture. The platform package
-/// owns system PATH and baseline environment commands.
+/// owns the baseline environment commands.
 pub fn detect_os() -> BindInfo {
     let os = &SYSTEM.os;
     let mut info = BindInfo::new("os", os.name());

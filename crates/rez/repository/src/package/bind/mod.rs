@@ -929,8 +929,9 @@ mod tests {
         assert_eq!(info.name, "platform");
         assert!(!info.version.is_empty());
         let commands = info.commands.as_deref().unwrap();
-        assert!(commands.contains("system.paths"));
         assert!(commands.contains("system.environ"));
+        // System PATH is appended by the context after package commands.
+        assert!(!commands.contains("PATH.append"));
     }
 
     #[test]

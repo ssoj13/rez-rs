@@ -330,7 +330,7 @@ impl ShellType {
     ///
     /// The shell is resolved against the parent PATH here: on Unix, `Command`
     /// searches the child's PATH, which a resolved context may leave without
-    /// system directories (they come from the platform package). An unresolved
+    /// system directories (`append_sys_path` disabled). An unresolved
     /// name is kept, so spawning reports the usual not-found error.
     pub fn command(&self, source: &str) -> std::process::Command {
         let executable =

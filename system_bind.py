@@ -163,7 +163,7 @@ def refresh_system_bindings(
             values, callbacks, _ = _definition(source, definition)
             if values.get("name") != family or values.get("version") != version:
                 raise BindError(f"Generated package identity mismatch: {definition}")
-            if family == "platform" and (not callbacks or "system.paths" not in source or "system.environ" not in source):
+            if family == "platform" and (not callbacks or "system.environ" not in source):
                 raise BindError("Activated Rez platform binder lacks the canonical system baseline")
             generated[family] = (version, source, values, callbacks)
 
