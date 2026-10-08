@@ -41,7 +41,7 @@ class SourcePublicationTests(unittest.TestCase):
                   "crates/patch/tests/object.obj", "tests/fixtures/packages/sample/package.py"]
         private = [".env", ".env.local", "nested/.env.production",
                    ".repl_history.txt", "examples/conan/CMakeUserPresets.json",
-                   ".git/config", ".claude/notes.md", ".codex/state.json",
+                   ".git/config", ".claude/notes.md", ".codex/state.json", ".omh/state.json",
                    ".mcp.json", ".idea/workspace.xml", ".vscode/settings.json",
                    "docs/build/index.html", "target/debug/rez", "dist/install.py",
                    "examples/scons/main.obj", "examples/scons/example.exe",
@@ -63,6 +63,7 @@ class SourcePublicationTests(unittest.TestCase):
 
     def test_installer_rejects_excluded_source_material(self):
         for name in [".env", ".env.secret", ".repl_history.txt", ".claude/notes.md",
+                     ".omh/state.json",
                      "examples/CMakeUserPresets.json", "docs/build/index.html",
                      "examples/scons/main.obj", "examples/scons/example.exe",
                      "examples/scons/.sconsign.dblite",

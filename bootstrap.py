@@ -52,6 +52,7 @@ PACKAGE_FAMILY_DIR = DIST_DIR / REZ_PACKAGE_NAME
 SOURCE_ARCHIVE_EXCLUDES = frozenset({
     ".claude",
     ".codex",
+    ".omh",
     ".env",
     ".git",
     ".idea",
