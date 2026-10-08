@@ -17,8 +17,11 @@ CI mirrors blender-mcp-rs: one Windows/Linux/macOS matrix job runs `python boots
 - [x] Replace the Windows-only workflow and `ci/` scripts with the single `ci.py` entry point; release ZIPs are verified after extraction (the CLI ZIP through its own `install.py`).
 - [x] Private GUI dependencies use one fine-grained `DEPENDENCIES_TOKEN` instead of four deploy keys.
 - [x] Fix Linux-only compile error and Clippy findings in `model::platform` and `resolve::bundle_context` (found with a WSL Linux build).
-- [ ] Set `DEPENDENCIES_TOKEN` and delete the four `DEPENDENCY_*_SSH_KEY` secrets.
-- [ ] Accept a green hosted run on all three platforms.
+- [x] Fix macOS-only Clippy findings, skip non-UTF-8 file name tests that APFS rejects, and compare root links against the canonical (`/private/var`) temporary root.
+- [x] System PATH entries are appended after all package commands (post-system setup), not by the platform package, so packages shadow same-named host tools such as Xcode's `/usr/bin/Rez`. Installers migrate platform packages from the previous binder.
+- [x] Set `DEPENDENCIES_TOKEN` and delete the four `DEPENDENCY_*_SSH_KEY` secrets.
+- [x] Accept a green hosted run on all three platforms: run `37855892531` (commit `e1025e0`), branch `ci/matrix`.
+- [ ] Merge `ci/matrix` into `main`.
 
 ## Windows path authority
 
