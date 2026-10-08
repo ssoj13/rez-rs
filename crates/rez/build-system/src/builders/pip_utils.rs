@@ -38,6 +38,8 @@ pub(crate) struct SourceMap {
     root: PathBuf,
     build: Option<PathBuf>,
     volumes: Vec<std::ffi::OsString>,
+    // Existing source identity is separate from lexical staging/relocation coordinates.
+    identities: std::collections::BTreeMap<PathBuf, PathBuf>,
     pub(crate) paths: std::collections::BTreeMap<PathBuf, PathBuf>,
 }
 
@@ -47,6 +49,7 @@ impl SourceMap {
             root: work.to_path_buf(),
             build: build.map(Path::to_path_buf),
             volumes: Vec::new(),
+            identities: std::collections::BTreeMap::new(),
             paths: std::collections::BTreeMap::new(),
         }
     }
@@ -74,6 +77,18 @@ impl SourceMap {
         let original = Self::path(source)?;
         if let Some(staged) = self.paths.get(&original) {
             return Ok(staged.clone());
+        }
+        let identity = crate::util::path_key(&fs::canonicalize(&original)?);
+        if let Some(first_original) = self.identities.get(&identity) {
+            let staged = self
+                .paths
+                .get(first_original)
+                .ok_or_else(|| RezError::BuildSystem("Unmapped source identity".into()))?
+                .clone();
+            // Pip must be able to rewrite every original operand alias, but copying
+            // and relocation retain the first spelling's staging coordinates.
+            self.paths.insert(original, staged.clone());
+            return Ok(staged);
         }
         let prefix = original
             .components()
@@ -124,6 +139,7 @@ impl SourceMap {
                 original.display()
             )));
         }
+        self.identities.insert(identity, original.clone());
         self.paths.insert(original, staged.clone());
         Ok(staged)
     }
@@ -141,6 +157,7 @@ impl SourceMap {
             RezError::BuildSystem(format!("Invalid config.{backend}.source_inputs: {error}"))
         })?;
         let source = Self::path(&ctx.source_path)?;
+        let source_identity = crate::util::path_key(&fs::canonicalize(&source)?);
         for input in inputs {
             let input = if input.is_absolute() {
                 input
@@ -148,7 +165,8 @@ impl SourceMap {
                 source.join(input)
             };
             let input = Self::path(&input)?;
-            if source.starts_with(&input) && source != input {
+            let input_identity = crate::util::path_key(&fs::canonicalize(&input)?);
+            if source_identity.starts_with(&input_identity) && source_identity != input_identity {
                 return Err(RezError::BuildSystem(
                     "Declare exact source inputs instead of a project ancestor".into(),
                 ));
@@ -159,7 +177,16 @@ impl SourceMap {
     }
 
     pub(crate) fn relocate(&self, payload: &Path) -> Result<()> {
-        let mut paths = self.paths.iter().collect::<Vec<_>>();
+        let mut paths = self
+            .identities
+            .values()
+            .map(|original| {
+                self.paths
+                    .get(original)
+                    .map(|staged| (original, staged))
+                    .ok_or_else(|| RezError::BuildSystem("Unmapped source identity".into()))
+            })
+            .collect::<Result<Vec<_>>>()?;
         paths.sort_by_key(|(_, staged)| std::cmp::Reverse(staged.components().count()));
         for (original, staged) in paths {
             relocate(payload, staged, original)?;
@@ -1093,6 +1120,100 @@ mod tests {
         assert!(staged.parent().unwrap().join("resource").is_file());
         assert_eq!(map.volumes.len(), 1);
         assert_eq!(map.paths.len(), 2);
+    }
+
+    #[cfg(windows)]
+    fn short_existing_path(path: &Path) -> PathBuf {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+        let mut input = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        assert!(!input.contains(&0));
+        input.push(0);
+        let mut output = vec![0u16; 32768];
+        // Input is a NUL-terminated existing path; output owns the stated capacity.
+        let length =
+            unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) }
+                as usize;
+        assert!(
+            length > 0 && length < output.len(),
+            "GetShortPathNameW failed"
+        );
+        crate::util::path_key(&PathBuf::from(OsString::from_wide(&output[..length])))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn source_inputs_compare_existing_aliases_without_changing_coordinates() {
+        let checkout = tempfile::tempdir().unwrap();
+        let parent = checkout.path().join("ParentWithLongSourceIdentity");
+        let project = parent.join("ProjectWithLongSourceIdentity");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("source.txt"), "original").unwrap();
+        fs::write(parent.join("unrelated"), "valuable").unwrap();
+        let long_project = crate::util::path_key(&fs::canonicalize(&project).unwrap());
+        let long_parent = crate::util::path_key(&fs::canonicalize(&parent).unwrap());
+        let short_project = short_existing_path(&long_project);
+        let short_parent = short_existing_path(&long_parent);
+        if short_parent == long_parent {
+            eprintln!("8.3 ancestor spelling unavailable on this filesystem");
+            return;
+        }
+
+        let work = tempfile::tempdir().unwrap();
+        let mut map = SourceMap::new(work.path(), None);
+        let first_original = SourceMap::path(&short_project).unwrap();
+        let staged = map.stage(&short_project).unwrap();
+        // A second alias must reuse the captured input rather than recopying it.
+        fs::write(staged.join("source.txt"), "staged-only").unwrap();
+        assert_eq!(map.stage(&long_project).unwrap(), staged);
+        assert_eq!(
+            fs::read_to_string(staged.join("source.txt")).unwrap(),
+            "staged-only"
+        );
+        assert_eq!(map.identities.len(), 1);
+        assert_eq!(map.paths.len(), 2);
+        assert_eq!(map.paths[&first_original], staged);
+        assert_eq!(map.paths[&SourceMap::path(&long_project).unwrap()], staged);
+
+        let mut ctx = super::super::BuildContext::new(
+            long_project.clone(),
+            project.join("build"),
+            project.join("install"),
+        );
+        ctx.package_config = Some(serde_json::json!({"pip": {"source_inputs": [short_parent]}}));
+        let error = map.inputs(&ctx, "pip").unwrap_err();
+        assert!(error.to_string().contains("project ancestor"), "{error}");
+        assert_eq!(map.identities.len(), 1);
+        assert!(!staged.parent().unwrap().join("unrelated").exists());
+
+        ctx.package_config =
+            Some(serde_json::json!({"pip": {"source_inputs": [short_project, long_project]}}));
+        map.inputs(&ctx, "pip").unwrap();
+        assert_eq!(map.identities.len(), 1);
+        assert_eq!(map.paths.len(), 2);
+        assert_eq!(
+            fs::read_to_string(staged.join("source.txt")).unwrap(),
+            "staged-only"
+        );
+
+        let payload = tempfile::tempdir().unwrap();
+        fs::write(
+            payload.path().join("editable.pth"),
+            staged.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        map.relocate(payload.path()).unwrap();
+        let relocated = fs::read_to_string(payload.path().join("editable.pth")).unwrap();
+        assert_eq!(crate::util::path_key(Path::new(&relocated)), first_original);
+        assert_eq!(
+            fs::read_to_string(project.join("source.txt")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            fs::read_to_string(parent.join("unrelated")).unwrap(),
+            "valuable"
+        );
     }
 
     #[test]

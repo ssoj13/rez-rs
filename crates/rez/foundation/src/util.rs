@@ -36,6 +36,97 @@ pub fn path_key(path: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
+/// Obtain relative coordinates beneath a configured directory authority.
+///
+/// Lexical prefix aliases are compared without filesystem access first, allowing
+/// a configured root that has not been created yet. Otherwise only the existing
+/// configured root is canonicalized; Windows 8.3 spellings are expanded only in
+/// the destination's authority prefix. Generated descendants are never followed.
+///
+/// Returns None for an outside path or a suffix containing parent/root/prefix
+/// components. Descendant names and filesystem objects are not validated here:
+/// write callers must pass these coordinates to directory() before touching them.
+#[doc(hidden)]
+pub fn relative_to_authority(
+    root: &std::path::Path,
+    destination: &std::path::Path,
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    use std::path::{Component, Path, PathBuf};
+    let current = std::env::current_dir()?;
+    let root = path_key(&if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        current.join(root)
+    });
+    let destination = path_key(&if destination.is_absolute() {
+        destination.to_path_buf()
+    } else {
+        current.join(destination)
+    });
+    let relative = if let Ok(relative) = destination.strip_prefix(&root) {
+        Some(relative.to_path_buf())
+    } else {
+        let canonical_root = path_key(&directory(&root, Path::new(""), false)?);
+        let relative = destination
+            .strip_prefix(&canonical_root)
+            .ok()
+            .map(Path::to_path_buf);
+        #[cfg(windows)]
+        let relative =
+            relative.or_else(|| windows_authority_relative(&destination, &canonical_root));
+        relative
+    };
+    Ok(relative.filter(|relative: &PathBuf| {
+        relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    }))
+}
+
+// Expand 8.3 spellings only in the existing authority prefix. GetLongPathNameW
+// preserves junction names; canonicalizing a generated destination would follow
+// redirects and could incorrectly accept an escape from the declared authority.
+#[cfg(windows)]
+fn windows_authority_relative(
+    destination: &std::path::Path,
+    authority: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, PathBuf, Prefix};
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+
+    let depth = authority.components().count();
+    let prefix: PathBuf = destination.components().take(depth).collect();
+    let units: Vec<u16> = prefix.as_os_str().encode_wide().collect();
+    let mut wide: Vec<u16> = match prefix.components().next()? {
+        Component::Prefix(value) => match value.kind() {
+            Prefix::Disk(_) => r"\\?\".encode_utf16().chain(units).collect(),
+            Prefix::UNC(_, _) => r"\\?\UNC\"
+                .encode_utf16()
+                .chain(units.into_iter().skip(2))
+                .collect(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if wide.contains(&0) {
+        return None;
+    }
+    wide.push(0);
+    let mut buffer = vec![0u16; 32768];
+    // Both buffers are valid for the call, the input is NUL-terminated, and the
+    // output capacity is supplied in UTF-16 code units.
+    let length =
+        unsafe { GetLongPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) }
+            as usize;
+    if length == 0 || length >= buffer.len() {
+        return None;
+    }
+    let long_prefix = PathBuf::from(OsString::from_wide(&buffer[..length]));
+    (path_key(&long_prefix) == authority).then(|| destination.components().skip(depth).collect())
+}
+
 /// Classify redirects uniformly for generated directories and regular files.
 #[doc(hidden)]
 pub fn is_redirect(metadata: &std::fs::Metadata) -> bool {
@@ -318,6 +409,38 @@ mod tests {
     #[test]
     fn hex_encode_is_lowercase_and_preserves_leading_zeroes() {
         assert_eq!(hex_encode([0x00, 0x0f, 0xab, 0xff]), "000fabff");
+    }
+
+    #[test]
+    fn authority_coordinates_do_not_create_roots_or_accept_parent_traversal() {
+        use std::path::{Path, PathBuf};
+        let owned = tempfile::tempdir().unwrap();
+        let root = owned.path().join("root");
+        assert_eq!(
+            super::relative_to_authority(&root, &root.join("one/two")).unwrap(),
+            Some(PathBuf::from("one/two"))
+        );
+        assert_eq!(
+            super::relative_to_authority(&root, &root).unwrap(),
+            Some(PathBuf::new())
+        );
+        for relative in ["../outside", "one/../../outside"] {
+            assert_eq!(
+                super::relative_to_authority(&root, &root.join(relative)).unwrap(),
+                None
+            );
+        }
+        assert!(!root.exists());
+        std::fs::create_dir(&root).unwrap();
+        assert_eq!(
+            super::relative_to_authority(&root, &owned.path().join("root-sibling/child")).unwrap(),
+            None
+        );
+        let coordinates = super::relative_to_authority(&root, &root.join("one/two"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(coordinates, Path::new("one/two"));
+        assert!(!root.join("one").exists());
     }
 
     #[test]

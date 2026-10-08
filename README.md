@@ -92,9 +92,11 @@ cargo clippy --locked --workspace --release --all-targets -- -D warnings
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
+For Windows release path acceptance, run `python ci/test_workspace.py --require-short-path`. It runs the full locked release workspace in both normal and genuine 8.3 temporary-path environments and fails if the alias is unavailable.
+
 Root-only `cargo test` does not run the libraries moved into the functional crates. A workspace test run also selects the GUI member. Some native builder tests are explicitly ignored in the ordinary run and must be selected separately.
 
-The current Windows release workspace campaign passed 1,522 test/doc-test executions with zero failures and seven ignored scenarios. Strict workspace Clippy passed, and the same Python API archive passed 15 acceptance tests on each of CPython 3.13 and 3.10. Ignored native scenarios, GUI interaction, and Unix runtime acceptance remain separate gates. [Plan30](docs/plans/plan30.md) summarizes their scope; detailed earlier receipts remain with the previous repository.
+The current Windows release workspace gate passed both full campaigns: 1,528 test/doc-test executions with normal temporary paths and 1,528 with a genuine Windows 8.3 temporary-path alias, each across 47 targets with zero failures and seven ignored scenarios. This totals 3,056 executions of the same test scopes across the two path environments. Strict workspace Clippy passed, and the same Python API archive passed 15 acceptance tests on each of CPython 3.13 and 3.10. Ignored native scenarios, GUI interaction, and Unix runtime acceptance remain separate gates. [Plan30](docs/plans/plan30.md) summarizes their scope; detailed earlier receipts remain with the previous repository.
 
 ## Documentation
 

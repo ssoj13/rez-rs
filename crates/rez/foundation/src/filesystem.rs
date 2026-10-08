@@ -35,38 +35,10 @@ pub fn copy_dir_contents(
     }
 
     let destination = if let Some(root) = root {
-        let current = std::env::current_dir()?;
-        let root_path = if root.is_absolute() {
-            root.to_path_buf()
-        } else {
-            current.join(root)
-        };
-        let dest_path = if dest.is_absolute() {
-            dest.to_path_buf()
-        } else {
-            current.join(dest)
-        };
-        // Compare lexical prefixes without resolving generated ancestors.
-        let comparison_root = crate::util::path_key(&root_path);
-        let comparison_destination = crate::util::path_key(&dest_path);
-        let relative = match comparison_destination.strip_prefix(&comparison_root) {
-            Ok(relative) => relative.to_path_buf(),
-            Err(_) => {
-                // Generated paths returned by directory() use the canonical authority
-                // (including Windows verbatim prefixes), while callers may retain its alias.
-                // Never canonicalize the generated destination: that would follow redirects.
-                let canonical_root = crate::util::directory(&root_path, Path::new(""), false)?;
-                comparison_destination
-                    .strip_prefix(crate::util::path_key(&canonical_root))
-                    .map(Path::to_path_buf)
-                    .map_err(|_| {
-                        RezError::PackageCopy(
-                            "Destination is outside its declared copy root".into(),
-                        )
-                    })?
-            }
-        };
-        crate::util::directory(&root_path, &relative, true)?
+        let relative = crate::util::relative_to_authority(root, dest)?.ok_or_else(|| {
+            RezError::PackageCopy("Destination is outside its declared copy root".into())
+        })?;
+        crate::util::directory(root, &relative, true)?
     } else {
         // None declares the explicit destination itself as the configured authority.
         crate::util::directory(dest, Path::new(""), true)?
@@ -275,4 +247,114 @@ pub fn safe_remove_dir(path: &Path) -> Result<()> {
             e
         ))
     })
+}
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    fn short_path(path: &Path) -> PathBuf {
+        let input: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut output = vec![0u16; 32768];
+        // The input is NUL-terminated and output has the declared capacity.
+        let length = unsafe {
+            windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(
+                input.as_ptr(),
+                output.as_mut_ptr(),
+                output.len() as u32,
+            )
+        } as usize;
+        assert!(length > 0 && length < output.len());
+        PathBuf::from(OsString::from_wide(&output[..length]))
+    }
+
+    fn junction(link: &Path, target: &Path) {
+        let output = std::process::Command::new("cmd")
+            .args(["/D", "/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    }
+
+    #[test]
+    fn copy_accepts_short_authority_spellings_and_rejects_foreign_roots() {
+        let owned = tempfile::Builder::new()
+            .prefix("rez-copy-authority-long-")
+            .tempdir()
+            .unwrap();
+        let source = owned.path().join("source");
+        let authority = owned.path().join("authority-directory-long");
+        let foreign = owned.path().join("foreign-directory-long");
+        for path in [&source, &authority, &foreign] {
+            fs::create_dir(path).unwrap();
+        }
+        fs::write(source.join("file"), b"payload").unwrap();
+        let canonical = fs::canonicalize(&authority).unwrap();
+        let short = short_path(&authority);
+        for (root, destination) in [
+            (&canonical, short.join("short-destination")),
+            (&short, canonical.join("long-destination")),
+        ] {
+            copy_dir_contents(&source, &destination, false, false, Some(root), None).unwrap();
+            assert_eq!(fs::read(destination.join("file")).unwrap(), b"payload");
+        }
+        let outside = short_path(&foreign).join("absent");
+        assert!(
+            copy_dir_contents(&source, &outside, false, false, Some(&canonical), None).is_err()
+        );
+        assert!(!foreign.join("absent").exists());
+    }
+
+    #[test]
+    fn short_authority_preserves_configured_junctions_and_rejects_generated_junctions() {
+        let owned = tempfile::Builder::new()
+            .prefix("rez-copy-junction-long-")
+            .tempdir()
+            .unwrap();
+        let source = owned.path().join("source");
+        let authority = owned.path().join("authority-directory-long");
+        let foreign = owned.path().join("foreign");
+        for path in [&source, &authority, &foreign] {
+            fs::create_dir(path).unwrap();
+        }
+        fs::write(source.join("file"), b"payload").unwrap();
+        fs::write(foreign.join("file"), b"valuable").unwrap();
+        let configured = owned.path().join("configured");
+        junction(&configured, &authority);
+        let short = short_path(&authority);
+        copy_dir_contents(
+            &source,
+            &short.join("accepted"),
+            false,
+            false,
+            Some(&configured),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(authority.join("accepted/file")).unwrap(),
+            b"payload"
+        );
+
+        let redirect = authority.join("redirect");
+        junction(&redirect, &foreign);
+        let canonical = fs::canonicalize(&authority).unwrap();
+        assert!(copy_dir_contents(
+            &source,
+            &short.join("redirect/nested"),
+            false,
+            false,
+            Some(&canonical),
+            None,
+        )
+        .is_err());
+        assert_eq!(fs::read(foreign.join("file")).unwrap(), b"valuable");
+        assert!(!foreign.join("nested").exists());
+        // Remove the junction objects before the scratch directory is dropped.
+        fs::remove_dir(redirect).unwrap();
+        fs::remove_dir(configured).unwrap();
+    }
 }

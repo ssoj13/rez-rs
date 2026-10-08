@@ -55,6 +55,42 @@ Root-only `cargo test` does not execute the libraries' moved unit-test targets. 
 
 Crate extraction preserves the compatibility work in [plan30](https://github.com/ssoj13/rez-rs/blob/main/docs/plans/plan30.md). Historical compiler, runtime, deployment and archive receipts refer to their original source snapshots; they do not verify the refactored workspace.
 
+## Path authority and source identity
+
+The shared path contract belongs to `foundation::util`. `path_key` normalizes path
+prefix spelling lexically and performs no filesystem lookup.
+`relative_to_authority(root, destination) -> io::Result<Option<PathBuf>>` returns
+bounded relative coordinates containing only normal path components. It relates
+the configured root spelling to its canonical and Windows 8.3 spellings; it does
+not validate the destination's existing descendants.
+
+Generated-directory operations apply name and reparse-point checks to each
+component below that authority before creating or traversing it. A configured
+root may be a junction. A generated junction below the root is rejected, as are
+outside destinations and parent traversal. On Windows, `GetLongPathNameW` expands
+an existing prefix only; it does not canonicalize the entire generated path.
+Mapped-drive/UNC equivalence and arbitrary alias identities are outside this
+contract.
+
+Read-only executable lookup and local-package reporting reuse the authority
+relation without inheriting generated-directory write validation. Pip SourceMap
+keeps canonical identity for existing inputs separately from the first lexical
+staging coordinates and their alias translations. Generated Pip metadata uses
+its own content-relocation contract; authority checks do not rewrite its text.
+
+Upstream Rez's [filesystem utilities](https://github.com/AcademySoftwareFoundation/rez/blob/main/src/rez/utils/filesystem.py)
+resolve symlinks in `canonical_path`, and `is_subdirectory` applies `realpath` to
+both paths. Its [package copying](https://github.com/AcademySoftwareFoundation/rez/blob/main/src/rez/package_copy.py)
+also operates on existing package payloads. Those identity/read operations do
+not supply the generated-directory write-authority contract above: resolving a
+descendant first can hide a junction that must be rejected before traversal.
+
+The Windows gate `python ci/test_workspace.py --require-short-path` runs the
+locked release workspace tests once with normal temporary paths and once with a
+genuine 8.3 `TEMP` alias. It fails when that alias is unavailable rather than
+silently omitting the second campaign. [Plan30](../../plans/plan30.md#windows-path-authority-and-ci)
+records the current local, hosted, and artifact verification boundaries.
+
 ## Scoped verification — 2026-10-06
 
 An earlier bounded gate, `cargo test --offline -p foundation -p version`, exited 0: 41 foundation tests, 97 version tests, and three version doc-tests passed. `cargo clippy --offline -p foundation -p version --all-targets -- -D warnings` also exited 0. Foundation's shared pattern helper was extracted afterward, so these receipts do not verify that later source change.

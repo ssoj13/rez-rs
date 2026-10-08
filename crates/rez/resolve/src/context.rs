@@ -41,6 +41,27 @@ pub const RXT_EXTENSION: &str = ".rxt";
 /// Rez-rs version string embedded in saved contexts.
 const REZ_RS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Match local repository ownership without rewriting the recorded provenance.
+fn local_resolve_names(packages: &[ResolvedPackageInfo], local_path: &Path) -> String {
+    packages
+        .iter()
+        .filter(|package| {
+            package
+                .repo_path
+                .as_ref()
+                .or(package.root.as_ref())
+                .is_some_and(|path| {
+                    foundation::util::relative_to_authority(local_path, path)
+                        .ok()
+                        .flatten()
+                        .is_some()
+                })
+        })
+        .map(|package| package.qualified_name())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 // =============================================================================
 // ResolveOptions - builder for configuring a resolve
 // =============================================================================
@@ -2159,15 +2180,10 @@ impl ResolvedContext {
         // REZ_USED_LOCAL_RESOLVE: space-separated list of packages from local_packages_path
         if !self.from_cache {
             let local_path = CONFIG.expanded_local_packages_path().to_os();
-            let local_pkgs: Vec<String> = resolved_pkgs
-                .iter()
-                .filter(|pkg| {
-                    let path = pkg.repo_path.as_ref().or(pkg.root.as_ref());
-                    path.is_some_and(|p| p.starts_with(&local_path))
-                })
-                .map(|pkg| pkg.qualified_name())
-                .collect();
-            executor.setenv("REZ_USED_LOCAL_RESOLVE", local_pkgs.join(" "));
+            executor.setenv(
+                "REZ_USED_LOCAL_RESOLVE",
+                local_resolve_names(resolved_pkgs, &local_path),
+            );
         }
 
         // Rez-1 variables share the normal Rex action path and explicit opt-in policy.
@@ -2618,8 +2634,14 @@ impl ResolvedContext {
                 let full = dir.join(candidate);
                 if full.is_file() {
                     let pkg = self.resolved_packages.as_ref().and_then(|pkgs| {
-                        pkgs.iter()
-                            .find(|p| p.root.as_ref().is_some_and(|r| full.starts_with(r)))
+                        pkgs.iter().find(|package| {
+                            package.root.as_ref().is_some_and(|root| {
+                                foundation::util::relative_to_authority(root, &full)
+                                    .ok()
+                                    .flatten()
+                                    .is_some()
+                            })
+                        })
                     });
                     let name = pkg.map(|p| p.name.clone()).unwrap_or_default();
                     return Some((name, full));
@@ -3961,6 +3983,126 @@ mod tests {
     use repository::provider::{ResourceHandleKey, ResourceHandleVariables};
     use std::str::FromStr;
     use version::Version;
+
+    #[cfg(windows)]
+    fn context_short_path(path: &Path) -> PathBuf {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetShortPathNameW(long_path: *const u16, short_path: *mut u16, size: u32) -> u32;
+        }
+
+        let input = path
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
+        let required = unsafe { GetShortPathNameW(input.as_ptr(), std::ptr::null_mut(), 0) };
+        assert!(required > 0, "{}", std::io::Error::last_os_error());
+        let mut output = vec![0; required as usize];
+        let written = unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), required) };
+        assert!(
+            written > 0 && written < required,
+            "{}",
+            std::io::Error::last_os_error()
+        );
+        let short = PathBuf::from(std::ffi::OsString::from_wide(&output[..written as usize]));
+        assert_ne!(
+            foundation::util::path_key(&short),
+            foundation::util::path_key(path),
+            "Windows regression requires an actual 8.3 alias"
+        );
+        short
+    }
+
+    #[cfg(windows)]
+    fn context_alias_package(root: PathBuf) -> ResolvedPackageInfo {
+        ResolvedPackageInfo {
+            name: "python".into(),
+            version: Version::new("1").unwrap(),
+            variant_index: None,
+            resource_handle: None,
+            requires: Vec::new(),
+            repo_path: None,
+            root: Some(root),
+            commands: None,
+            pre_commands: None,
+            post_commands: None,
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn which_retains_package_owner_across_windows_path_aliases() {
+        let temporary = tempfile::tempdir().unwrap();
+        let authority = temporary
+            .path()
+            .join("Context package authority with spaces");
+        let bin = authority.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("python.exe"), b"which fixture").unwrap();
+        let long = authority.canonicalize().unwrap();
+        let short = context_short_path(&long);
+        let normal = foundation::util::path_key(&long);
+
+        for (root, path_root) in [(short.clone(), long.clone()), (normal, short.clone())] {
+            let mut package = context_alias_package(root.clone());
+            let path = path_root.join("bin");
+            package.commands = Some(format!(
+                "env.PATH = {}\n",
+                serde_json::to_string(&path.to_string_lossy()).unwrap()
+            ));
+            let mut context = ResolvedContext::empty();
+            context.status = ResolverStatus::Solved;
+            context.resolved_packages = Some(vec![package]);
+            let (owner, command) = context.which("python").expect("fixture command");
+            assert_eq!(owner, "python");
+            assert_eq!(command, path.join("python.exe"));
+            assert_eq!(
+                context.resolved_packages.as_ref().unwrap()[0].root,
+                Some(root)
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_resolve_retains_provenance_across_windows_path_aliases() {
+        let temporary = tempfile::tempdir().unwrap();
+        let authority = temporary
+            .path()
+            .join("Context local repository with spaces");
+        std::fs::create_dir_all(authority.join("python/1")).unwrap();
+        let long = authority.canonicalize().unwrap();
+        let short = context_short_path(&long);
+        let mut package = context_alias_package(short.join("python/1"));
+        package.repo_path = Some(short.clone());
+        let original = package.clone();
+        assert_eq!(
+            local_resolve_names(std::slice::from_ref(&package), &long),
+            "python-1"
+        );
+        assert_eq!(
+            local_resolve_names(std::slice::from_ref(&package), &short),
+            "python-1"
+        );
+        assert_eq!(package.repo_path, original.repo_path);
+        assert_eq!(package.root, original.root);
+
+        // Missing repository provenance uses the payload root, including mixed aliases.
+        package.repo_path = None;
+        assert_eq!(
+            local_resolve_names(std::slice::from_ref(&package), &long),
+            "python-1"
+        );
+        let outside = temporary
+            .path()
+            .join("Context local repository with spaces sibling");
+        std::fs::create_dir_all(&outside).unwrap();
+        package.repo_path = Some(outside);
+        assert!(local_resolve_names(&[package], &long).is_empty());
+    }
 
     #[test]
     fn cached_roots_are_transient_and_input_policy_precedes_cache_update() {

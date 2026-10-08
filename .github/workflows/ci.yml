@@ -81,8 +81,8 @@ jobs:
         with:
           path: target
           key: windows-x86_64-stable-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
-      - name: Test release workspace
-        run: cargo test --locked --offline --workspace --release -- --test-threads=1
+      - name: Test release workspace with normal and 8.3 temp paths
+        run: python ci/test_workspace.py --require-short-path
       - name: Clippy
         run: cargo clippy --locked --offline --workspace --release --all-targets -- -D warnings
       - name: Build and stage release
