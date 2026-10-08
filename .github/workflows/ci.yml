@@ -75,13 +75,15 @@ jobs:
           DEPENDENCY_WIDGETS_SSH_KEY: ${{ secrets.DEPENDENCY_WIDGETS_SSH_KEY }}
           DEPENDENCY_LAYOUT_SSH_KEY: ${{ secrets.DEPENDENCY_LAYOUT_SSH_KEY }}
         run: python ci/fetch_dependencies.py
-      - name: Cache compiled dependencies
+      - name: Restore compiled dependencies
+        id: cargo_cache
         if: github.event_name != 'pull_request'
-        uses: actions/cache@v5.0.0
+        uses: actions/cache/restore@v5.0.0
         with:
           path: target
           key: windows-x86_64-stable-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
       - name: Test release workspace with normal and 8.3 temp paths
+        id: workspace_tests
         run: python ci/test_workspace.py --require-short-path
       - name: Clippy
         run: cargo clippy --locked --offline --workspace --release --all-targets -- -D warnings
@@ -132,6 +134,16 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Save compiled dependencies after workspace verification
+        if: >-
+          always() && github.event_name != 'pull_request' &&
+          steps.cargo_cache.outcome == 'success' &&
+          steps.cargo_cache.outputs.cache-hit != 'true' &&
+          (steps.workspace_tests.outcome == 'success' || steps.workspace_tests.outcome == 'failure')
+        uses: actions/cache/save@v5.0.0
+        with:
+          path: target
+          key: ${{ steps.cargo_cache.outputs.cache-primary-key }}
 
   release:
     name: Publish tagged executable

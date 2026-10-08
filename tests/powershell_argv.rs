@@ -18,7 +18,8 @@ fn shells() -> Vec<PathBuf> {
 
 fn run(shell: &Path, command: &str) -> Output {
     let invocation = ShellType::PowerShell.command(&format!(
-        "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); {command}"
+        "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); \
+         $OutputEncoding=[System.Text.UTF8Encoding]::new($false); {command}"
     ));
     Command::new(shell)
         .args(invocation.get_args())
@@ -179,6 +180,58 @@ fn functions_and_expansion_keep_string_types_and_single_evaluation() {
             serde_json::from_slice::<Vec<String>>(&success(&shell, &command).stdout).unwrap(),
             ["once"]
         );
+    }
+}
+
+#[test]
+fn native_stdin_encoding_matches_the_callers_powershell_preference() {
+    let temp = tempfile::tempdir().unwrap();
+    let python = python(temp.path());
+    let payload = "pipe-input \u{2603}";
+    let code = "import sys,json;print(json.dumps(list(sys.stdin.buffer.read())))";
+    for shell in shells() {
+        for emit_bom in [false, true] {
+            let preference =
+                format!("$OutputEncoding=[System.Text.UTF8Encoding]::new(${emit_bom});");
+            let ordinary = format!(
+                "{preference} '{payload}' | & '{}' '-c' '{code}'",
+                python.to_string_lossy().replace('\'', "''")
+            );
+            let expected: Vec<u8> =
+                serde_json::from_slice(&success(&shell, &ordinary).stdout).unwrap();
+            let rendered = format!(
+                "{preference} $before=$OutputEncoding; '{payload}' | {}; \
+                 if(-not [object]::ReferenceEquals($before,$OutputEncoding))\
+                 {{throw 'stdin encoding preference leaked'}}",
+                invocation(&python, code, &[], false)
+            );
+            let actual: Vec<u8> =
+                serde_json::from_slice(&success(&shell, &rendered).stdout).unwrap();
+            assert_eq!(
+                actual,
+                expected,
+                "shell={}, emit_bom={emit_bom}",
+                shell.display()
+            );
+            let input = if emit_bom {
+                expected
+                    .strip_prefix(&[0xef, 0xbb, 0xbf])
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "shell={}: native baseline did not emit its BOM",
+                            shell.display()
+                        )
+                    })
+            } else {
+                expected.as_slice()
+            };
+            assert!(input.starts_with(payload.as_bytes()));
+            assert!(
+                matches!(&input[payload.len()..], b"\r\n" | b"\n"),
+                "shell={}: unexpected native newline",
+                shell.display()
+            );
+        }
     }
 }
 
