@@ -373,7 +373,8 @@ mod tests {
         assert_eq!(ctx.install_path, live);
     }
 
-    #[cfg(unix)]
+    // APFS/HFS+ require UTF-8 file names (EILSEQ), so macOS cannot hold these payloads.
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn native_mapping_preserves_distinct_non_utf8_names() {
         use std::os::unix::ffi::OsStringExt;

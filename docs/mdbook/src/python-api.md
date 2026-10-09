@@ -94,9 +94,9 @@ Custom token factories, permissive bound parsing, repository/plugin wrapper obje
 ## Distribution verification
 
 ```console
-python ci/verify_python_api.py
+python bootstrap.py release --python <another-cpython>
 ```
 
-Verification compares extension bytes with Cargo output, checks archive membership/CRC and every wrapper's canonical bytes, then extracts the archive into a temporary directory. An isolated CPython process runs the acceptance suite against that extracted package. Tests cover versions, package definitions, variants, exact repository precedence, solving/failures, Rex environment commands, and saved context round trips.
+Verification extracts `dist/release/rez-rs-python-v<version>-<platform>.zip` into a temporary directory. An isolated process runs the acceptance suite against that extracted package on the build CPython and on each `--python` interpreter. Tests cover versions, package definitions, variants, exact repository precedence, solving/failures, Rex environment commands, and saved context round trips.
 
-Local Windows acceptance passed 15 tests on each of CPython 3.13.11 and 3.10.18 against the same abi3 archive; all 14 archive members matched canonical bytes and CRCs. CI is configured to run the same Windows archive on CPython 3.13 and 3.10 before upload. Read-only deploy keys are configured for the private GUI dependencies; hosted Windows acceptance is still a separate pending gate. The `windows-python` artifact and tagged releases contain `rez-rs-python.zip`, its SHA-256 checksum, and a verification receipt. These checks establish the listed consumers, not complete Rez compatibility or Unix acceptance.
+CI runs the archive of each platform (Windows, Linux, macOS) on CPython 3.13 and 3.10. Tagged releases publish it as `rez-rs-python-v<version>-<platform>.zip`. These checks establish the listed consumers, not complete Rez compatibility.

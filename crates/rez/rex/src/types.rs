@@ -327,8 +327,15 @@ impl ShellType {
     }
 
     /// Build a subprocess that executes shell source without re-quoting it as argv.
+    ///
+    /// The shell is resolved against the parent PATH here: on Unix, `Command`
+    /// searches the child's PATH, which a resolved context may leave without
+    /// system directories (`append_sys_path` disabled). An unresolved
+    /// name is kept, so spawning reports the usual not-found error.
     pub fn command(&self, source: &str) -> std::process::Command {
-        let mut command = std::process::Command::new(self.executable());
+        let executable =
+            find_executable(self.executable(), None).unwrap_or_else(|| self.executable().into());
+        let mut command = std::process::Command::new(executable);
         #[cfg(windows)]
         if *self == Self::Cmd {
             use std::os::windows::process::CommandExt;

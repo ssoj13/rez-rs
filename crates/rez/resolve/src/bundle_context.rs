@@ -375,22 +375,22 @@ impl BundleContext {
     }
 
     /// Apply binary patching to bundle libs and executables.
+    #[cfg(target_os = "linux")]
     fn patch_libs(&mut self) -> Result<()> {
-        #[cfg(target_os = "linux")]
-        {
-            return self.patch_libs_linux();
-        }
+        self.patch_libs_linux()
+    }
 
-        #[cfg(target_os = "macos")]
-        {
-            return self.patch_libs_macos();
-        }
+    /// Apply binary patching to bundle libs and executables.
+    #[cfg(target_os = "macos")]
+    fn patch_libs(&mut self) -> Result<()> {
+        self.patch_libs_macos()
+    }
 
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        {
-            self.info("Lib patching not supported on this platform (Windows/other), skipped");
-            Ok(())
-        }
+    /// Apply binary patching to bundle libs and executables.
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn patch_libs(&mut self) -> Result<()> {
+        self.info("Lib patching not supported on this platform (Windows/other), skipped");
+        Ok(())
     }
 
     /// Patch ELF binaries on Linux (remap runpaths to $ORIGIN-relative).

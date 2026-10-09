@@ -92,7 +92,7 @@ cargo clippy --locked --workspace --release --all-targets -- -D warnings
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-For Windows release path acceptance, run `python ci/test_workspace.py --require-short-path`. It runs the full locked release workspace in both normal and genuine 8.3 temporary-path environments and fails if the alias is unavailable.
+`python bootstrap.py ci` runs all of these, then builds, bundles and verifies the release ZIPs exactly as GitHub CI does on Windows, Linux and macOS.
 
 Root-only `cargo test` does not run the libraries moved into the functional crates. A workspace test run also selects the GUI member. Some native builder tests are explicitly ignored in the ordinary run and must be selected separately.
 

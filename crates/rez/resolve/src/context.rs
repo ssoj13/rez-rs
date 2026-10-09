@@ -2296,14 +2296,18 @@ impl ResolvedContext {
             }
         }
 
-        // Append standard_system_paths from config if set (rez config override).
-        // Canonical OS paths are provided by the platform package's commands().
+        // System paths go after every package command so resolved packages always
+        // shadow same-named host tools (e.g. Xcode's /usr/bin/Rez on case-insensitive
+        // macOS). A configured standard_system_paths replaces the OS defaults.
         if self.append_sys_path {
-            let cfg = &crate::config::CONFIG;
-            if !cfg.standard_system_paths.is_empty() {
-                for entry in &cfg.standard_system_paths {
-                    executor.appendenv("PATH", entry);
-                }
+            let configured = &crate::config::CONFIG.standard_system_paths;
+            let paths = if configured.is_empty() {
+                repository::package::bind::discover_sys_paths()
+            } else {
+                configured.clone()
+            };
+            for entry in &paths {
+                executor.appendenv("PATH", entry);
             }
         }
 
@@ -6782,7 +6786,8 @@ env.REZ_TEST_PATH.append(literal("second"))
         );
         let mut context = ResolvedContext::empty();
         context.status = ResolverStatus::Solved;
-        context.append_sys_path = false;
+        // System PATH entries come from post-system setup, not the platform package.
+        context.append_sys_path = true;
         context.resolved_packages = Some(vec![ResolvedPackageInfo {
             name: "platform".to_string(),
             version: Version::from_str("1.0").expect("valid test version"),

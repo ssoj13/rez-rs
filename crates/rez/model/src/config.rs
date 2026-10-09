@@ -214,7 +214,7 @@ pub struct RezConfig {
     pub all_parent_variables: bool,
     /// Start resolved shells from the OS baseline and explicit parent allowlist.
     pub clean_shell_environment: bool,
-    /// Append configured standard system paths after package commands.
+    /// Append system paths to PATH after all package commands.
     pub append_sys_path: bool,
     pub resetting_variables: Vec<String>,
     pub all_resetting_variables: bool,
@@ -226,6 +226,7 @@ pub struct RezConfig {
     pub suite_visibility: SuiteVisibility,
     pub rez_tools_visibility: RezToolsVisibility,
     pub package_commands_sourced_first: bool,
+    /// System PATH entries appended by `append_sys_path`; empty means the OS defaults.
     pub standard_system_paths: Vec<String>,
 
     // -- Build/release --
@@ -878,7 +879,7 @@ error_on_missing_variant_requires = {error_on_missing_variant_requires}
 
 # Start resolved shells with OS defaults and only parent_variables inherited.
 clean_shell_environment = {clean_shell_environment}
-# Append standard_system_paths after package commands; disable for strict PATH control.
+# Append system paths after all package commands, so packages shadow host tools.
 append_sys_path = {append_sys_path}
 # Default shell for rez-env. Empty = auto-detect (bash/cmd/PowerShell).
 default_shell = {default_shell}
@@ -890,7 +891,7 @@ suite_visibility = {suite_vis}
 rez_tools_visibility = {rez_vis}
 # If True: source package commands before shell init (.bashrc etc). If False: after.
 package_commands_sourced_first = {package_commands_sourced_first}
-# Standard paths to append when resetting PATH-like vars.
+# System paths appended by append_sys_path. Empty = OS defaults.
 standard_system_paths = {std_system_paths}
 
 # Preprocess order: "before" | "after" | "override".

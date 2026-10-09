@@ -489,9 +489,10 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let alias = owned.path().join("configured");
         std::os::unix::fs::symlink(&root, &alias).unwrap();
+        // The configured root resolves canonically; macOS temp lives under /var -> /private/var.
         assert_eq!(
             super::directory(&alias, std::path::Path::new(""), false).unwrap(),
-            root
+            std::fs::canonicalize(&root).unwrap()
         );
         std::os::unix::fs::symlink(owned.path(), root.join("redirect")).unwrap();
         assert!(super::directory(&root, std::path::Path::new("redirect/outside"), true).is_err());

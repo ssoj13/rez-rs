@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 import types
 import unittest
 from unittest.mock import Mock, patch
@@ -26,6 +27,7 @@ def load_module(name, path):
 
 bootstrap = load_module("publication_bootstrap", ROOT / "bootstrap.py")
 installer = load_module("publication_installer", ROOT / "packaging" / "install.py")
+system_bind = load_module("publication_system_bind", ROOT / "system_bind.py")
 
 
 class SourcePublicationTests(unittest.TestCase):
@@ -41,7 +43,7 @@ class SourcePublicationTests(unittest.TestCase):
                   "crates/patch/tests/object.obj", "tests/fixtures/packages/sample/package.py"]
         private = [".env", ".env.local", "nested/.env.production",
                    ".repl_history.txt", "examples/conan/CMakeUserPresets.json",
-                   ".git/config", ".claude/notes.md", ".codex/state.json",
+                   ".git/config", ".claude/notes.md", ".codex/state.json", ".omh/state.json",
                    ".mcp.json", ".idea/workspace.xml", ".vscode/settings.json",
                    "docs/build/index.html", "target/debug/rez", "dist/install.py",
                    "examples/scons/main.obj", "examples/scons/example.exe",
@@ -63,6 +65,7 @@ class SourcePublicationTests(unittest.TestCase):
 
     def test_installer_rejects_excluded_source_material(self):
         for name in [".env", ".env.secret", ".repl_history.txt", ".claude/notes.md",
+                     ".omh/state.json",
                      "examples/CMakeUserPresets.json", "docs/build/index.html",
                      "examples/scons/main.obj", "examples/scons/example.exe",
                      "examples/scons/.sconsign.dblite",
@@ -156,6 +159,22 @@ class SourcePublicationTests(unittest.TestCase):
             self.assertEqual(installer.main(), 0)
         self.assertEqual(activate.call_count, 2)
         refresh.assert_called_once_with(host / "cli" / installer.TOOL_BINARY)
+
+    def test_previous_rez_rs_platform_commands_may_migrate(self):
+        # Platform packages bound before system PATH moved after package commands.
+        source = textwrap.dedent("""\
+            name = 'platform'
+            version = 'windows'
+
+            def commands():
+                for _rez_system_path in system.paths:
+                    env.PATH.append(_rez_system_path)
+                for _rez_system_key, _rez_system_value in system.environ.items():
+                    if _rez_system_key.upper() != 'PATH':
+                        env[_rez_system_key].set(_rez_system_value)
+            """)
+        _, callbacks, _ = system_bind._definition(source, Path("package.py"))
+        self.assertIn(callbacks["commands"], system_bind.LEGACY_PLATFORM_COMMANDS)
 
 
 if __name__ == "__main__":

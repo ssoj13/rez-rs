@@ -2369,7 +2369,8 @@ fn borrowed_publication_preserves_payload_filesystem_stats() {
     assert!(stage.path().join("payload/file").exists());
 }
 
-#[cfg(unix)]
+// APFS/HFS+ require UTF-8 file names (EILSEQ), so macOS cannot hold these payloads.
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn publication_preserves_distinct_non_utf8_payload_names() {
     use std::os::unix::ffi::OsStringExt;

@@ -135,7 +135,8 @@ PBS-specific `REZ_PBS_*` settings belong to the external Python recipes, rather 
 | `package_commands_sourced_first` | `bool` | `true` | If true: source package commands before shell init (.bashrc); if false: after |
 | `env_var_separators` | `dict` | `{"PATH": ":", ...}` | Custom separators for specific env vars |
 | `pathed_env_vars` | `list[str]` | `["PATH", "PYTHONPATH", ...]` | Env vars that contain paths (for proper joining) |
-| `standard_system_paths` | `list[str]` | platform-specific | System paths always included in PATH |
+| `append_sys_path` | `bool` | `true` | Append system paths to PATH after all package commands, so resolved packages shadow host tools |
+| `standard_system_paths` | `list[str]` | `[]` | System paths appended by `append_sys_path`; empty uses the OS defaults |
 
 ### Shells
 

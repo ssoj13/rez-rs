@@ -57,30 +57,24 @@ For interactive development, `cargo check --locked --workspace` avoids linking. 
 
 ## GitHub CI and releases
 
-[The workflow](https://github.com/ssoj13/rez-rs/blob/main/.github/workflows/ci.yml) runs on pushes, pull requests, and manual dispatch. Source checks run on Ubuntu; the release binary and runtime acceptance run on Windows x86_64. Ordinary workspace tests exclude explicitly ignored native scenarios, and this workflow does not establish GUI interaction or Linux/macOS runtime acceptance.
+[The workflow](https://github.com/ssoj13/rez-rs/blob/main/.github/workflows/ci.yml) runs on pushes, pull requests from this repository, and manual dispatch. One matrix job builds natively on Windows x86_64, Linux x86_64 (`ubuntu-latest`, glibc) and macOS arm64. Each row runs a single entry point, the same one used locally:
 
-The default GUI currently needs four private repositories: `ssoj13/nodes-rs`, `ssoj13/box-rs`, `ssoj13/wgpu-widgets-rs`, and `ssoj13/graph-layout-rs`. Trusted CI uses a separate read-only deploy key for each repository, stored as `DEPENDENCY_NODES_SSH_KEY`, `DEPENDENCY_BOX_SSH_KEY`, `DEPENDENCY_WIDGETS_SSH_KEY`, and `DEPENDENCY_LAYOUT_SSH_KEY` in rez-rs Actions Secrets. Supply all four together. The fetch helper maps each exact dependency URL to its own SSH identity, verifies GitHub's pinned public host keys from `ci/github_known_hosts`, and removes credentials before subsequent build steps. Public dependencies use HTTPS; the lockfile remains unchanged.
-
-Alternatively, provide a fine-grained token with **Contents: Read** access to those four repositories as `DEPENDENCIES_TOKEN`. Its temporary HTTPS credential helper only answers requests for github.com. Private key files and token helpers live in a temporary directory removed when Cargo exits, including failure paths. The four key values and the token are removed from Cargo's environment in SSH mode; no private credential is stored in source or Cargo configuration. Host-key pins were obtained from GitHub's HTTPS `/meta` endpoint. Update them explicitly after verifying a GitHub host-key rotation.
-
-Fork pull requests run formatting, Python helper tests, and the book build. Full Windows builds run on pushes, manual dispatch, and pull requests from this repository.
-
-The Windows job runs `python ci/test_workspace.py --require-short-path` for full locked release workspace tests in normal and genuine Windows 8.3 temporary-path environments, then strict Clippy. It builds and stages the final binaries afterward through `python bootstrap.py p --force`, so packaging uses the post-test extension output. `python ci/verify_dist.py --require-python` checks source archive membership, bytes and CRCs, canonical installer helpers, binary equality, a relocated frozen interpreter, generated configuration, quickstart with no host Python on PATH, and a bound installed Python consumer.
-
-Cargo cache restore and save use separate steps. Trusted non-PR jobs attempt to save the compiled cache after the workspace attempt, including runtime-test failures. This preserves a completed cold compilation for later runs; a cache hit or successful cache save does not establish test or artifact acceptance.
-
-PowerShell process fixtures set both `$OutputEncoding` (native stdin pipes) and `[Console]::OutputEncoding` (console output) to UTF-8 without a BOM. Setting console encoding alone does not control bytes sent through a native stdin pipe. A separate regression explicitly selects caller UTF-8 encodings with and without a BOM, compares rendered-command stdin bytes with an ordinary native invocation, and verifies that rendering preserves the caller's `$OutputEncoding` object. It checks Unicode and the raw byte comparison before asserting the baseline BOM prefix; production shell rendering is unchanged.
-
-The separate Python archive under `dist/python/<version>` includes `rez/rs.pyd` and the compatibility facade. `python ci/verify_python_api.py` checks its exported bytes and runs acceptance after extraction in an isolated CPython process. CI tests the same archive on CPython 3.13 and 3.10; download `windows-python` for those files. See [Python API ownership and supported imports](python-api.md).
-
-Download the `windows-x86_64` artifact from a successful Actions run. It contains the verified `rez.exe` from `dist/rez_rs/<version>`, `rez.exe.sha256`, and `verification.json`. Verify the executable in PowerShell:
-
-```powershell
-(Get-FileHash ./rez.exe -Algorithm SHA256).Hash
-Get-Content ./rez.exe.sha256
+```console
+python bootstrap.py ci --target x86_64-pc-windows-msvc --python <extra-python>
 ```
 
-For a release, update the Cargo package version and lockfile, commit the change, and push a matching tag, such as `v0.1.0`. After all gates pass, the release job publishes the executable and Python archive, their checksums, and receipts. Update the `rez-python-api` crate version together with the root Cargo package version. A tag such as `v0.1.0-alpha.1` requires the same prerelease version in Cargo and creates a GitHub prerelease.
+[`ci.py`](https://github.com/ssoj13/rez-rs/blob/main/ci.py) runs formatting, strict release Clippy, release workspace tests, the Python helper tests and the book build. It then stages the packages through `bootstrap.py package`, after tests, so the staged extension is the final Cargo output, and writes two ZIPs per platform to `dist/release/`:
+
+- `rez-rs-v<version>-<platform>.zip`: `install.py`, its support modules, and `rez_rs/<version>/` (`package.py`, the CLI, `rez-rs.zip` sources), ready for `python install.py --repository-root <repo>`.
+- `rez-rs-python-v<version>-<platform>.zip`: the abi3 `rez` package with `rez.rs`.
+
+Both archives are verified after extraction. The CLI ZIP is installed into an empty repository with its own `install.py`; the embedded source archive must equal the current sources; the relocated CLI must run its frozen interpreter, write a configuration, bind and resolve the quickstart packages with no host Python on `PATH`, and then bind and resolve the host Python. The Python ZIP runs the API acceptance suite in isolated interpreters: the build CPython (3.13 in CI) and each `--python` (3.10 in CI). `python bootstrap.py release` runs only the packaging and verification steps.
+
+The GUI needs private repositories (`nodes-rs`, `box-rs`, `wgpu-widgets-rs`, `graph-layout-rs`). CI reads them with one fine-grained token, `DEPENDENCIES_TOKEN`, which has **Contents: Read** on those repositories. A workflow step rewrites `ssh://git@github.com/ssoj13/` to authenticated HTTPS for Git, so `Cargo.lock` is unchanged. Fork pull requests do not receive the secret, so they skip the build.
+
+Deterministic PowerShell process fixtures set `$OutputEncoding` (pipeline text), `[Console]::InputEncoding` (initial redirected native stdin) and `[Console]::OutputEncoding` (console output) to UTF-8 without a BOM. Windows PowerShell's .NET Framework [Process initialization](https://raw.githubusercontent.com/microsoft/referencesource/main/System/services/monitoring/system/diagnosticts/Process.cs) creates the redirected stdin writer with `Console.InputEncoding` and enables `AutoFlush`, so the [StreamWriter](https://raw.githubusercontent.com/microsoft/referencesource/main/mscorlib/system/io/streamwriter.cs) can emit a preamble before any pipeline text; `$OutputEncoding` cannot remove it later.
+
+For a release, update the Cargo package version (and `rez-python-api` with it) and the lockfile, commit, and push a matching tag such as `v0.1.0`. The tag must equal `v` plus the Cargo version. After all three platforms pass, the release job publishes the six ZIPs. A tag such as `v0.1.0-alpha.1` requires the same prerelease version in Cargo and creates a GitHub prerelease.
 
 ## Add a CLI command
 

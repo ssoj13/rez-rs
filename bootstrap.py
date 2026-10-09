@@ -10,6 +10,7 @@ Examples:
     python bootstrap.py p --force
     python bootstrap.py test -n
     python bootstrap.py check
+    python bootstrap.py ci --target x86_64-pc-windows-msvc
     python bootstrap.py prepare
     python bootstrap.py pip-torch
     python bootstrap.py example cargo
@@ -51,6 +52,7 @@ PACKAGE_FAMILY_DIR = DIST_DIR / REZ_PACKAGE_NAME
 SOURCE_ARCHIVE_EXCLUDES = frozenset({
     ".claude",
     ".codex",
+    ".omh",
     ".env",
     ".git",
     ".idea",
@@ -486,6 +488,16 @@ def run_example(args: argparse.Namespace) -> int:
     return run(rez_command("build", "--install"), cwd=example_dir, env=env)
 
 
+def run_portable(args: argparse.Namespace) -> int:
+    """Keep CI/release orchestration behind the same bootstrap entry point."""
+    command = [sys.executable, str(ROOT_DIR / "ci.py"), args.command]
+    if args.target:
+        command += ["--target", args.target]
+    for python in args.python:
+        command += ["--python", python]
+    return run(command)
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Cross-platform build, packaging, and development commands for rez-rs."
@@ -516,6 +528,16 @@ def make_parser() -> argparse.ArgumentParser:
 
     check_parser = commands.add_parser("check", aliases=["c"], help="Check formatting and run Clippy.")
     check_parser.set_defaults(handler=run_check)
+
+    for name, help_text in (
+        ("ci", "Run all source gates, then build, bundle and verify the release ZIPs."),
+        ("release", "Build, bundle and verify the release ZIPs in dist/release."),
+    ):
+        portable_parser = commands.add_parser(name, help=help_text)
+        portable_parser.add_argument("--target", help="Rust target triple; must match the host.")
+        portable_parser.add_argument("--python", action="append", default=[],
+                                     help="Extra CPython interpreter for the Python ZIP tests.")
+        portable_parser.set_defaults(handler=run_portable)
 
     prepare_parser = commands.add_parser("prepare", help="Bind system packages and install the common Python packages.")
     prepare_parser.set_defaults(handler=run_prepare)

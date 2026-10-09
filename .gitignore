@@ -2,6 +2,7 @@ target/
 .gitnexus/
 .claude/
 .codex/
+.omh/
 .idea/
 .vscode/
 .mcp.json

@@ -1891,8 +1891,9 @@ mod tests {
         // Use a command that will fail with a known exit code
         #[cfg(windows)]
         tests.insert("fail_test".to_string(), json!("cmd /C exit 42"));
+        // A built-in, so the result does not depend on host tools on the context PATH.
         #[cfg(not(windows))]
-        tests.insert("fail_test".to_string(), json!("sh -c 'exit 42'"));
+        tests.insert("fail_test".to_string(), json!("exit 42"));
 
         let mut pkg = Package::new("testpkg", Version::new("1.0").unwrap());
         pkg.tests = Some(tests);

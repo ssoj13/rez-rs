@@ -60,17 +60,18 @@ Crate extraction preserves the compatibility work in [plan30](https://github.com
 The shared path contract belongs to `foundation::util`. `path_key` normalizes path
 prefix spelling lexically and performs no filesystem lookup.
 `relative_to_authority(root, destination) -> io::Result<Option<PathBuf>>` returns
-bounded relative coordinates containing only normal path components. It relates
-the configured root spelling to its canonical and Windows 8.3 spellings; it does
-not validate the destination's existing descendants.
+bounded relative coordinates containing only normal path components. It accepts
+the configured lexical root spelling, its canonical target spelling, and Windows
+8.3 spellings of that target. It does not validate the destination's existing
+descendants.
 
 Generated-directory operations apply name and reparse-point checks to each
 component below that authority before creating or traversing it. A configured
 root may be a junction. A generated junction below the root is rejected, as are
 outside destinations and parent traversal. On Windows, `GetLongPathNameW` expands
 an existing prefix only; it does not canonicalize the entire generated path.
-Mapped-drive/UNC equivalence and arbitrary alias identities are outside this
-contract.
+Alternate spellings of a configured junction alias, mapped-drive/UNC equivalence,
+and general case-insensitive path identity are outside this contract.
 
 Read-only executable lookup and local-package reporting reuse the authority
 relation without inheriting generated-directory write validation. Pip SourceMap
@@ -85,11 +86,9 @@ also operates on existing package payloads. Those identity/read operations do
 not supply the generated-directory write-authority contract above: resolving a
 descendant first can hide a junction that must be rejected before traversal.
 
-The Windows gate `python ci/test_workspace.py --require-short-path` runs the
-locked release workspace tests once with normal temporary paths and once with a
-genuine 8.3 `TEMP` alias. It fails when that alias is unavailable rather than
-silently omitting the second campaign. [Plan30](../../plans/plan30.md#windows-path-authority-and-ci)
-records the current local, hosted, and artifact verification boundaries.
+Windows 8.3 spellings are covered by dedicated regressions in `foundation`,
+`resolve` and the Pip builder; each creates a genuine short alias and fails
+when the filesystem cannot provide one.
 
 ## Scoped verification — 2026-10-06
 

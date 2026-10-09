@@ -19,6 +19,7 @@ fn shells() -> Vec<PathBuf> {
 fn run(shell: &Path, command: &str) -> Output {
     let invocation = ShellType::PowerShell.command(&format!(
         "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); \
+         [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); \
          $OutputEncoding=[System.Text.UTF8Encoding]::new($false); {command}"
     ));
     Command::new(shell)
@@ -190,47 +191,53 @@ fn native_stdin_encoding_matches_the_callers_powershell_preference() {
     let payload = "pipe-input \u{2603}";
     let code = "import sys,json;print(json.dumps(list(sys.stdin.buffer.read())))";
     for shell in shells() {
-        for emit_bom in [false, true] {
-            let preference =
-                format!("$OutputEncoding=[System.Text.UTF8Encoding]::new(${emit_bom});");
-            let ordinary = format!(
-                "{preference} '{payload}' | & '{}' '-c' '{code}'",
-                python.to_string_lossy().replace('\'', "''")
-            );
-            let expected: Vec<u8> =
-                serde_json::from_slice(&success(&shell, &ordinary).stdout).unwrap();
-            let rendered = format!(
-                "{preference} $before=$OutputEncoding; '{payload}' | {}; \
-                 if(-not [object]::ReferenceEquals($before,$OutputEncoding))\
-                 {{throw 'stdin encoding preference leaked'}}",
-                invocation(&python, code, &[], false)
-            );
-            let actual: Vec<u8> =
-                serde_json::from_slice(&success(&shell, &rendered).stdout).unwrap();
-            assert_eq!(
-                actual,
-                expected,
-                "shell={}, emit_bom={emit_bom}",
-                shell.display()
-            );
-            let input = if emit_bom {
-                expected
-                    .strip_prefix(&[0xef, 0xbb, 0xbf])
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "shell={}: native baseline did not emit its BOM",
-                            shell.display()
-                        )
-                    })
-            } else {
-                expected.as_slice()
-            };
-            assert!(input.starts_with(payload.as_bytes()));
-            assert!(
-                matches!(&input[payload.len()..], b"\r\n" | b"\n"),
-                "shell={}: unexpected native newline",
-                shell.display()
-            );
+        for console_bom in [false, true] {
+            for emit_bom in [false, true] {
+                let preference = format!(
+                    "[Console]::InputEncoding=[System.Text.UTF8Encoding]::new(${console_bom}); \
+                     $OutputEncoding=[System.Text.UTF8Encoding]::new(${emit_bom});"
+                );
+                let ordinary = format!(
+                    "{preference} '{payload}' | & '{}' '-c' '{code}'",
+                    python.to_string_lossy().replace('\'', "''")
+                );
+                let expected: Vec<u8> =
+                    serde_json::from_slice(&success(&shell, &ordinary).stdout).unwrap();
+                let rendered = format!(
+                    "{preference} $before=$OutputEncoding; $beforeConsole=[Console]::InputEncoding; \
+                     '{payload}' | {}; \
+                     if(-not [object]::ReferenceEquals($before,$OutputEncoding) -or \
+                     -not [object]::ReferenceEquals($beforeConsole,[Console]::InputEncoding))\
+                     {{throw 'stdin encoding preference leaked'}}",
+                    invocation(&python, code, &[], false)
+                );
+                let actual: Vec<u8> =
+                    serde_json::from_slice(&success(&shell, &rendered).stdout).unwrap();
+                assert_eq!(
+                    actual,
+                    expected,
+                    "shell={}, console_bom={console_bom}, emit_bom={emit_bom}",
+                    shell.display()
+                );
+                // Sanity-check only the independent baseline after exact byte equality.
+                // Framework may prepend an additional console preamble before the pipe writer.
+                let mut input = expected.as_slice();
+                if console_bom || emit_bom {
+                    while let Some(body) = input.strip_prefix(&[0xef, 0xbb, 0xbf]) {
+                        input = body;
+                    }
+                }
+                assert!(
+                    input.starts_with(payload.as_bytes()),
+                    "shell={}, console_bom={console_bom}, emit_bom={emit_bom}: bytes={expected:?}",
+                    shell.display()
+                );
+                assert!(
+                    matches!(&input[payload.len()..], b"\r\n" | b"\n"),
+                    "shell={}: unexpected native newline",
+                    shell.display()
+                );
+            }
         }
     }
 }
@@ -250,7 +257,12 @@ fn native_streams_stdin_filters_exit_and_binary_redirection_are_preserved() {
             )
         );
         let input: String = serde_json::from_slice(&success(&shell, &command).stdout).unwrap();
-        assert_eq!(input.replace("\r\n", "\n"), "pipe-input\n");
+        assert_eq!(
+            input.replace("\r\n", "\n"),
+            "pipe-input\n",
+            "shell={}",
+            shell.display()
+        );
         let command = format!(
             "$a=@({} | Where-Object {{ $_ -eq 'keep' }}); if($a.Count -ne 1 -or $a[0] -ne 'keep'){{throw 'pipeline'}}",
             invocation(&python, "print('keep');print('discard')", &[], false)

@@ -39,7 +39,7 @@ EXPECTED_FILES = frozenset({"package.py", TOOL_BINARY, "rez-rs.zip"})
 HOST_FILES = EXPECTED_FILES - {"package.py"}
 SOURCE_ARCHIVE_ROOT = "rez-rs"
 FORBIDDEN_ARCHIVE_PARTS = frozenset(
-    {".claude", ".codex", ".env", ".git", ".gitnexus", ".idea", ".mcp.json",
+    {".claude", ".codex", ".omh", ".env", ".git", ".gitnexus", ".idea", ".mcp.json",
      ".pytest_cache", ".repl_history.txt", ".venv", ".vscode", "CMakeUserPresets.json",
      "CMakeCache.txt", "CMakeFiles", ".sconsign.dblite", ".scons_node_count", ".eggs",
      "__pycache__", "dist", "node_modules", "target", "venv"}
