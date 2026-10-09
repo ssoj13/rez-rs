@@ -1,6 +1,15 @@
 //! Native legacy entry points use the same executable and dispatcher.
 use std::collections::BTreeMap;
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
+
+/// Serializes this file's tests: on Linux a child forked by one test can inherit
+/// another test's still-open write handle to a freshly copied binary, and exec of
+/// that binary then fails with ETXTBSY ("Text file busy").
+fn serial() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn isolated(program: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut command = Command::new(program);
@@ -32,6 +41,7 @@ fn alias(root: &std::path::Path, name: &str) -> std::path::PathBuf {
 
 #[test]
 fn every_metadata_entry_point_dispatches_its_own_help() {
+    let _serial = serial();
     let temp = tempfile::tempdir().unwrap();
     for (name, target) in metadata() {
         if target == "python" {
@@ -58,6 +68,7 @@ fn every_metadata_entry_point_dispatches_its_own_help() {
 
 #[test]
 fn reference_entry_point_names_are_present() {
+    let _serial = serial();
     let names = metadata();
     for name in [
         "rezolve",
@@ -103,6 +114,7 @@ fn reference_entry_point_names_are_present() {
 
 #[test]
 fn python_alias_preserves_native_options_arguments_and_reentry() {
+    let _serial = serial();
     let temp = tempfile::tempdir().unwrap();
     let path = alias(temp.path(), "rez-python");
     let output = isolated(&path)

@@ -1,6 +1,7 @@
 //! Verify that a relocated CLI carries its Python standard library with it.
 
 use std::process::Command;
+use std::sync::Mutex;
 
 const PYTHON_PROBE: &str = r#"
 import sys
@@ -46,6 +47,13 @@ print("FROZEN_STDLIB_OK")
 "#;
 
 fn run_portable_python(poison_homes: bool, home_environment: bool) {
+    // Serialize this file's tests: on Linux a child forked by one test can inherit
+    // another test's still-open write handle to its freshly copied binary, and exec
+    // of that binary then fails with ETXTBSY ("Text file busy").
+    static SERIAL: Mutex<()> = Mutex::new(());
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let temp = tempfile::tempdir().expect("create isolated executable directory");
     let executable = temp
         .path()
