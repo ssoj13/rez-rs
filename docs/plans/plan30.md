@@ -21,7 +21,7 @@ CI mirrors blender-mcp-rs: one Windows/Linux/macOS matrix job runs `python boots
 - [x] System PATH entries are appended after all package commands (post-system setup), not by the platform package, so packages shadow same-named host tools such as Xcode's `/usr/bin/Rez`. Installers migrate platform packages from the previous binder.
 - [x] Set `DEPENDENCIES_TOKEN` and delete the four `DEPENDENCY_*_SSH_KEY` secrets.
 - [x] Accept a green hosted run on all three platforms: run `37855892531` (commit `e1025e0`), branch `ci/matrix`.
-- [ ] Merge `ci/matrix` into `main`.
+- [x] Merge `ci/matrix` into `main` (PR #1, merge commit `5ea12c1`).
 
 ## Windows path authority
 
