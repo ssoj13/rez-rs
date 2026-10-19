@@ -323,6 +323,94 @@ fn context_load(py: Python<'_>, path: PathBuf) -> PyResult<Py<PyAny>> {
 }
 
 #[pyfunction]
+#[pyo3(signature = (context_json, verbosity=0))]
+fn context_info(context_json: &str, verbosity: u32) -> PyResult<String> {
+    let context = ResolvedContext::from_json(&parse_json(context_json)?, None).map_err(error)?;
+    Ok(context.format_info(verbosity))
+}
+
+#[pyfunction]
+#[pyo3(signature = (context_json, package_paths=None))]
+fn context_diagnose_conflicts(
+    py: Python<'_>,
+    context_json: &str,
+    package_paths: Option<Vec<PathBuf>>,
+) -> PyResult<Py<PyAny>> {
+    let context = ResolvedContext::from_json(&parse_json(context_json)?, None).map_err(error)?;
+    let search_paths = match package_paths {
+        Some(explicit) => paths(Some(explicit))?,
+        None if !context.package_paths.is_empty() => context.package_paths.clone(),
+        None => paths(None)?,
+    };
+    let provider = FilesystemPackageProvider::from_paths(&search_paths).map_err(error)?;
+    let report = context.diagnose_conflicts(&provider).map_err(error)?;
+    let mut val =
+        serde_json::to_value(&report).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    val["formatted"] = json!(report.format_human());
+    object(py, val)
+}
+
+#[pyfunction]
+#[pyo3(signature = (context_json, parent_environ=None, clean_room=false))]
+fn context_inspect_environment(
+    py: Python<'_>,
+    context_json: &str,
+    parent_environ: Option<HashMap<String, String>>,
+    clean_room: bool,
+) -> PyResult<Py<PyAny>> {
+    let context = ResolvedContext::from_json(&parse_json(context_json)?, None).map_err(error)?;
+    let report = context
+        .inspect_environment(parent_environ.as_ref(), clean_room)
+        .map_err(error)?;
+    let mut val =
+        serde_json::to_value(&report).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    val["formatted"] = json!(report.format_human());
+    object(py, val)
+}
+
+#[pyfunction]
+#[pyo3(signature = (context_json, dest_dir, subdirs=None, strategy="auto"))]
+fn context_materialize_merged_directory(
+    py: Python<'_>,
+    context_json: &str,
+    dest_dir: PathBuf,
+    subdirs: Option<Vec<String>>,
+    strategy: &str,
+) -> PyResult<Py<PyAny>> {
+    let context = ResolvedContext::from_json(&parse_json(context_json)?, None).map_err(error)?;
+    let link_strategy = resolve::cleanroom::LinkStrategy::from_name(strategy).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "Invalid merge strategy '{strategy}': expected auto, symlink, hardlink, or copy"
+        ))
+    })?;
+    let manifest = context
+        .materialize_merged_directory(&dest_dir, subdirs.as_deref().unwrap_or(&[]), link_strategy)
+        .map_err(error)?;
+    object(
+        py,
+        serde_json::to_value(&manifest).map_err(|e| PyValueError::new_err(e.to_string()))?,
+    )
+}
+
+#[pyfunction]
+#[pyo3(signature = (raw_code=None, native_signal=None))]
+fn classify_exit_code(
+    py: Python<'_>,
+    raw_code: Option<i32>,
+    native_signal: Option<i32>,
+) -> PyResult<Py<PyAny>> {
+    let classification = resolve::supervisor::classify_exit_code(
+        raw_code,
+        native_signal,
+        foundation::platform::Platform::current(),
+    );
+    object(
+        py,
+        serde_json::to_value(&classification).map_err(|e| PyValueError::new_err(e.to_string()))?,
+    )
+}
+
+#[pyfunction]
 fn config_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
     object(
         py,
@@ -369,6 +457,14 @@ fn rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(context_environ, module)?)?;
     module.add_function(wrap_pyfunction!(context_save, module)?)?;
     module.add_function(wrap_pyfunction!(context_load, module)?)?;
+    module.add_function(wrap_pyfunction!(context_info, module)?)?;
+    module.add_function(wrap_pyfunction!(context_diagnose_conflicts, module)?)?;
+    module.add_function(wrap_pyfunction!(context_inspect_environment, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        context_materialize_merged_directory,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(classify_exit_code, module)?)?;
     module.add_function(wrap_pyfunction!(config_snapshot, module)?)?;
     Ok(())
 }

@@ -392,7 +392,7 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
             ctx.print_info(args.verbose as u32);
         }
 
-        if args.why_not || !success {
+        if args.why_not {
             let diag_provider = match active_provider {
                 Some(ref p) => p.as_ref(),
                 None => {
@@ -408,9 +408,13 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
                 }
             };
             if let Ok(diag_report) = ctx.diagnose_conflicts(diag_provider) {
-                if args.why_not || diag_report.has_findings() {
+                if !success || diag_report.has_findings() {
                     println!("\n{}", diag_report.format_human());
+                } else {
+                    println!("Context resolved cleanly with no package conflicts.");
                 }
+            } else if success {
+                println!("Context resolved cleanly with no package conflicts.");
             }
         }
 
@@ -424,7 +428,6 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         }
 
         if args.why_not && success {
-            println!("Context resolved cleanly with no package conflicts.");
             return Ok(std::process::ExitCode::SUCCESS);
         }
     }

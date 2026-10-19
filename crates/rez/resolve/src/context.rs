@@ -2235,10 +2235,8 @@ impl ResolvedContext {
             }
         };
 
-        let resolved_env = self
-            .get_environ(effective_parent.clone())
-            .unwrap_or_default();
         let shell_type = shell.unwrap_or_else(crate::shell::types::detect_shell);
+        let parent_for_forensics = effective_parent.clone();
 
         let started_ms = crate::supervisor::now_epoch_ms();
         let status = self.execute_shell(
@@ -2251,6 +2249,13 @@ impl ResolvedContext {
         let finished_ms = crate::supervisor::now_epoch_ms();
 
         let classification = crate::supervisor::classify_exit_status(&status);
+        let should_write = classification.is_crash_or_loader_failure() || always_write_report;
+        let resolved_env = if should_write {
+            self.get_environ(parent_for_forensics).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
         let mut report = crate::supervisor::CrashForensicsReport::build(
             self,
             shell_type.name(),
@@ -2265,7 +2270,6 @@ impl ResolvedContext {
             None,
         );
 
-        let should_write = report.exit.is_crash_or_loader_failure() || always_write_report;
         let written_paths = if should_write {
             let target_dir = crash_report_dir
                 .map(Path::to_path_buf)

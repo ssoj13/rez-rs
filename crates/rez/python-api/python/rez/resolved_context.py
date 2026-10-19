@@ -90,5 +90,22 @@ class ResolvedContext:
     def get_environ(self, parent_environ=None):
         return rs.context_environ(json.dumps(self._doc), parent_environ)
 
-    def execute_command(self, args, parent_environ=None, **kwargs):
-        raise NotImplementedError("Subprocess context execution is not supported by the facade yet")
+    def print_info(self, buf=None, verbosity=0, source_order=False, show_resolved_uris=False):
+        import sys
+        target = sys.stdout if buf is None else buf
+        target.write(rs.context_info(json.dumps(self._doc), int(verbosity)))
+
+    def execute_command(self, args, parent_environ=None, **Popen_args):
+        import shutil
+        import subprocess
+        env = dict(os.environ if parent_environ is None else parent_environ)
+        env.update(self.get_environ(parent_environ=parent_environ))
+        if isinstance(args, (list, tuple)) and args and not Popen_args.get("shell"):
+            cmd = list(args)
+            resolved_exe = shutil.which(str(cmd[0]), path=env.get("PATH"))
+            if resolved_exe:
+                cmd[0] = resolved_exe
+            args = cmd
+        Popen_args = dict(Popen_args, env=env)
+        return subprocess.Popen(args, **Popen_args)
+

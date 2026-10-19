@@ -195,6 +195,47 @@ def commands():
         self.assertEqual(context.status, ResolverStatus.failed)
         self.assertIsNone(context.resolved_packages)
         self.assertTrue(context.failure_description)
+        diagnostics = rs.context_diagnose_conflicts(json.dumps(context.to_dict()), self.paths)
+        self.assertEqual(diagnostics["status"], "failed")
+        self.assertIn("dependency", diagnostics["conflicting_families"])
+        self.assertIn("Why-Not", diagnostics["formatted"])
+
+    def test_context_info_execute_command_and_studio_extensions(self):
+        import io
+        import sys
+        context = self.context()
+        buf = io.StringIO()
+        context.print_info(buf=buf)
+        self.assertIn("application", buf.getvalue())
+
+        proc = context.execute_command(
+            [sys.executable, "-c", "import os; print(os.environ.get('REZ_TEST_ACCEPTANCE', ''))"],
+            stdout=-1, text=True,
+        )
+        out, _ = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(out.strip(), "works")
+
+        inspection = rs.context_inspect_environment(
+            json.dumps(context.to_dict()),
+            {"PYTHONPATH": "/leaked/site-packages", "PATH": "original"},
+            True,
+        )
+        self.assertTrue(inspection["clean_room_active"])
+        self.assertTrue(any(item["name"] == "PYTHONPATH" for item in inspection["sanitized_leaks"]))
+
+        app_bin = self.repo / "application" / "1" / "dependency-1" / "bin"
+        app_bin.mkdir(parents=True, exist_ok=True)
+        (app_bin / "tool.txt").write_text("payload", encoding="utf-8")
+        merged_dir = self.root / "merged"
+        manifest = rs.context_materialize_merged_directory(
+            json.dumps(context.to_dict()), str(merged_dir), ["bin"], "copy"
+        )
+        self.assertGreaterEqual(manifest["total_files"], 1)
+        self.assertTrue((merged_dir / "bin" / "tool.txt").is_file())
+
+        crash_info = rs.classify_exit_code(-1073741515, None)
+        self.assertEqual(crash_info["code_name"], "STATUS_DLL_NOT_FOUND")
 
     def test_unsupported_options_fail_explicitly(self):
         with self.assertRaises(NotImplementedError):
@@ -205,3 +246,4 @@ def commands():
 
 if __name__ == "__main__":
     unittest.main(argv=[__file__], verbosity=2)
+
