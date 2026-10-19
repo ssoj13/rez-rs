@@ -466,6 +466,30 @@ The search order is:
 
 The first matching file is loaded.
 
+## Package Preprocessing (`preprocess`)
+
+`package.py` files can define a `preprocess(this, data)` function to validate or dynamically transform package attributes at load time (compatible with Rez 3.4.0):
+
+```python
+name = "studio_tool"
+version = "1.2.0"
+
+def preprocess(this, data):
+    # `this` provides read-only attribute access (e.g., this.name, this.version, this.root)
+    # `data` is the mutable dict of package attributes
+    if not data.get("authors"):
+        raise InvalidPackageError("Studio policy requires 'authors' to be specified")
+    data.setdefault("requires", []).append("studio_core-1+")
+```
+
+Studios can also configure a global preprocessor in `rezconfig.py` using `package_preprocess_function` (either a Python callable or a dotted `"module.function"` import path) and `package_preprocess_mode`:
+
+- `"before"` -- global `package_preprocess_function` runs before the package's `preprocess()`
+- `"after"` (default) -- global `package_preprocess_function` runs after the package's `preprocess()`
+- `"override"` -- global `package_preprocess_function` replaces the package's `preprocess()` unless the package explicitly sets `preprocess = False`
+
+Raising `InvalidPackageError` inside `preprocess` rejects the package definition with a clear validation error. If `preprocess` modifies `commands` (or `pre_commands` / `post_commands`) into a function, its source code is extracted and serialized into the installed package metadata.
+
 ## YAML Format
 
 `package.yaml` example:

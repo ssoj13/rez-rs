@@ -76,6 +76,8 @@ Deterministic PowerShell process fixtures set `$OutputEncoding` (pipeline text),
 
 For a release, update the Cargo package version (and `rez-python-api` with it) and the lockfile, commit, and push a matching tag such as `v0.1.0`. The tag must equal `v` plus the Cargo version. After all three platforms pass, the release job publishes the six ZIPs. A tag such as `v0.1.0-alpha.1` requires the same prerelease version in Cargo and creates a GitHub prerelease.
 
+The separate [GitHub Pages workflow](https://github.com/ssoj13/rez-rs/blob/main/.github/workflows/pages.yml) builds `docs/mdbook` with `mdbook` and deploys `docs/build` to GitHub Pages when documentation changes land on `main` (or via manual `workflow_dispatch`).
+
 ## Add a CLI command
 
 Choose its group under `src/cli/`, define a Clap argument struct and `run` function, register the module in the group's `mod.rs`, and add dispatch metadata in `src/main.rs`.

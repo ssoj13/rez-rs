@@ -176,8 +176,8 @@ pub struct EnvArgs {
     pub merge_subdirs: Vec<String>,
 
     /// Link strategy for --merge-dir ("auto", "symlink", "hardlink", or "copy")
-    #[arg(long, default_value = "auto", value_name = "MODE")]
-    pub merge_strategy: String,
+    #[arg(long, value_name = "MODE")]
+    pub merge_strategy: Option<String>,
 
     /// Directory to write crash forensics bundles (.json + .rxt) when a child command crashes
     #[arg(long, value_name = "DIR")]
@@ -385,14 +385,15 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         RezError::Resolve("no context: provide packages to resolve, or use --input".into())
     })?;
     let success = ctx.status == ResolverStatus::Solved;
+    let should_diagnose = args.why_not || (!success && CONFIG.diagnose_conflicts_on_fail);
 
     // Print info on failure or when --why-not is requested
-    if !success || args.why_not {
+    if !success || should_diagnose {
         if !success {
             ctx.print_info(args.verbose as u32);
         }
 
-        if args.why_not {
+        if should_diagnose {
             let diag_provider = match active_provider {
                 Some(ref p) => p.as_ref(),
                 None => {
@@ -410,10 +411,10 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
             if let Ok(diag_report) = ctx.diagnose_conflicts(diag_provider) {
                 if !success || diag_report.has_findings() {
                     println!("\n{}", diag_report.format_human());
-                } else {
+                } else if args.why_not {
                     println!("Context resolved cleanly with no package conflicts.");
                 }
-            } else if success {
+            } else if success && args.why_not {
                 println!("Context resolved cleanly with no package conflicts.");
             }
         }
@@ -455,15 +456,23 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
 
     // -- Virtual Merged Directory materialization (--merge-dir) --
     if let Some(ref merge_dir) = args.merge_dir {
-        let strategy = resolve::cleanroom::LinkStrategy::from_name(&args.merge_strategy)
-            .ok_or_else(|| {
+        let strategy_name = args
+            .merge_strategy
+            .as_deref()
+            .unwrap_or(&CONFIG.merged_directory_strategy);
+        let strategy =
+            resolve::cleanroom::LinkStrategy::from_name(strategy_name).ok_or_else(|| {
                 RezError::Config(format!(
-                    "Invalid --merge-strategy '{}': expected auto, symlink, hardlink, or copy",
-                    args.merge_strategy
+                    "Invalid merge strategy '{}': expected auto, symlink, hardlink, or copy",
+                    strategy_name
                 ))
             })?;
-        let manifest =
-            ctx.materialize_merged_directory(merge_dir, &args.merge_subdirs, strategy)?;
+        let subdirs = if args.merge_subdirs.is_empty() {
+            CONFIG.merged_directory_subdirs.as_slice()
+        } else {
+            args.merge_subdirs.as_slice()
+        };
+        let manifest = ctx.materialize_merged_directory(merge_dir, subdirs, strategy)?;
         if !args.quiet {
             println!(
                 "Materialized virtual merged directory at {} ({} files across {} packages, {} overrides).",
@@ -475,9 +484,12 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         }
     }
 
+    let clean_room = args.clean_room || CONFIG.clean_room_environment;
+    let supervise = args.supervise || CONFIG.supervise_processes;
+
     // -- Environment Isolation & Leak Inspection (--inspect-env) --
     if args.inspect_env {
-        let report = ctx.inspect_environment(None, args.clean_room)?;
+        let report = ctx.inspect_environment(None, clean_room)?;
         println!("{}", report.format_human());
         if command.is_none() && args.extra.is_empty() {
             return Ok(std::process::ExitCode::SUCCESS);
@@ -499,12 +511,12 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         parent_environ,
         quiet,
         inherited,
-        args.clean_room,
+        clean_room,
         args.crash_report_dir.as_deref(),
-        args.supervise,
+        supervise,
     )?;
 
-    if forensics_report.exit.is_crash_or_loader_failure() || args.supervise {
+    if forensics_report.exit.is_crash_or_loader_failure() || supervise {
         let (jp, rp) = match bundle_paths {
             Some((ref j, ref r)) => (Some(j.as_path()), Some(r.as_path())),
             None => (None, None),

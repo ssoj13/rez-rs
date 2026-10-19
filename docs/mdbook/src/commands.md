@@ -43,9 +43,36 @@ rez env --shell bash maya-2024
 
 # Dry-run: show what would be resolved without entering the shell
 rez env --dry-run maya-2024 python-3.10
+
+# Explain an unsatisfiable request (MUS root-cause + minimal relaxation hints)
+rez env --why-not app_a app_b
+
+# Inspect host environment leaks and enter a sanitized Clean-Room shell
+rez env --clean-room --inspect-env maya-2024
+
+# Materialize a single merged virtual directory (sets REZ_MERGED_ROOT)
+rez env --merge-dir /tmp/merged_env --merge-strategy auto maya-2024
+
+# Supervise a DCC command and write crash forensics on fatal exit
+rez env --supervise --crash-report-dir /studio/logs/crashes maya-2024 -- maya -batch
 ```
 
 `rez env` is the most commonly used command. It resolves all requested packages and their transitive dependencies, executes the rex commands from each package, and spawns a new shell session with the resulting environment.
+
+#### Studio Launcher Options (`rez env`)
+
+All studio launcher flags are opt-in and default to standard Rez 3.4.0 behavior unless enabled via CLI flags or [Studio Launcher configuration](configuration.md#studio-launcher-extensions-rez-rs):
+
+| Flag | Config fallback | Description |
+|---|---|---|
+| `--why-not` | `diagnose_conflicts_on_fail` | Run QuickXplain MUS conflict analysis and suggest minimal version relaxations when resolution fails |
+| `--clean-room` | `clean_room_environment` | Sanitize inherited host environment to a strict OS baseline before applying package commands |
+| `--inspect-env` | -- | Print a categorized host environment leak report (`PythonRuntime`, `LibraryLoader`, `DccPipeline`, `CompilerBuild`) |
+| `--merge-dir <DIR>` | -- | Materialize a merged virtual directory across all resolved packages and export `REZ_MERGED_ROOT` |
+| `--merge-strategy <MODE>` | `merged_directory_strategy` | Link strategy for `--merge-dir`: `auto` (default), `hardlink`, `symlink`, or `copy` |
+| `--merge-subdirs <DIRS>` | `merged_directory_subdirs` | Comma-separated subdirectories to merge (default: `bin,lib,include,python,plugins`) |
+| `--supervise` | `supervise_processes` | Supervise `-- <command>`, classify Unix signals / Windows NTSTATUS codes, and emit crash forensics on fatal exit |
+| `--crash-report-dir <DIR>` | `crash_report_dir` | Directory for `.rxt` and `.crash.json` crash forensics bundles (implies `--supervise`) |
 
 ### rez context
 

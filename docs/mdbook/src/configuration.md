@@ -120,6 +120,8 @@ PBS-specific `REZ_PBS_*` settings belong to the external Python recipes, rather 
 | `package_filter` | `json?` | `None` | Filter rules for excluding packages from resolves |
 | `package_orderers` | `json?` | `None` | Custom ordering rules for package version selection |
 | `platform_map` | `dict` | `{}` | Map platform strings (e.g., `{"os": {"centos-7": "linux-7"}}`) |
+| `package_preprocess_function` | `str\|callable?` | `None` | Global `preprocess(this, data)` function or `"module.func"` dotted path |
+| `package_preprocess_mode` | `str` | `"after"` | Global preprocess order relative to package-defined `preprocess`: `"before"`, `"after"`, or `"override"` |
 
 ### Environment Resolution
 
@@ -137,6 +139,20 @@ PBS-specific `REZ_PBS_*` settings belong to the external Python recipes, rather 
 | `pathed_env_vars` | `list[str]` | `["PATH", "PYTHONPATH", ...]` | Env vars that contain paths (for proper joining) |
 | `append_sys_path` | `bool` | `true` | Append system paths to PATH after all package commands, so resolved packages shadow host tools |
 | `standard_system_paths` | `list[str]` | `[]` | System paths appended by `append_sys_path`; empty uses the OS defaults |
+| `clean_shell_environment` | `bool` | `false` | Strip non-essential host environment variables before applying package commands |
+
+### Studio Launcher Extensions (rez-rs)
+
+All studio launcher extensions are **disabled by default** so `rez-rs` behaves identically to upstream Rez 3.4.0 (`rez3`) out of the box. Enable them studio-wide or per-show in `rezconfig.py` / `rezconfig.toml`, via `REZ_*` environment variables, or per-invocation on the `rez env` CLI:
+
+| Field | Environment variable | Default | CLI equivalent | Description |
+|---|---|---|---|---|
+| `diagnose_conflicts_on_fail` | `REZ_DIAGNOSE_CONFLICTS_ON_FAIL` | `false` | `--why-not` | Run QuickXplain MUS conflict explanation and suggest concrete version relaxations when a resolve fails |
+| `clean_room_environment` | `REZ_CLEAN_ROOM_ENVIRONMENT` | `false` | `--clean-room` | Enforce strict OS baseline environment sanitization (strip DCC/Python/Library/Compiler leaks from the parent environment) |
+| `supervise_processes` | `REZ_SUPERVISE_PROCESSES` | `false` | `--supervise` | Supervise child DCC processes (`rez env ... -- <cmd>`), classify Unix signals and Windows NTSTATUS codes (`0xC0000005`, `0xC0000135`, etc.), and emit crash forensics on fatal exit |
+| `crash_report_dir` | `REZ_CRASH_REPORT_DIR` | `None` | `--crash-report-dir` | Directory where `.rxt` context snapshots and `.crash.json` forensics reports are written when a supervised process crashes |
+| `merged_directory_strategy` | `REZ_MERGED_DIRECTORY_STRATEGY` | `"auto"` | `--merge-strategy` | Default link strategy when materializing a merged directory (`--merge-dir`): `"auto"` (hardlink -> symlink -> copy), `"hardlink"`, `"symlink"`, or `"copy"` |
+| `merged_directory_subdirs` | `REZ_MERGED_DIRECTORY_SUBDIRS_JSON` | `["bin", "lib", "include", "python", "plugins"]` | `--merge-subdirs` | Default package subdirectories merged by `--merge-dir` (or `REZ_MERGED_DIRECTORY_SUBDIRS="bin,lib,python"`) |
 
 ### Shells
 
@@ -290,7 +306,20 @@ resolve_caching = True
 cache_packages_path = os.path.expanduser("~/.rez/cache")
 memcached_uri = ["memcache01:11211", "memcache02:11211"]
 
+# Package preprocessing hook (Rez 3.4.0 compatible)
+package_preprocess_function = "studio_rez_hooks.preprocess_package"
+package_preprocess_mode = "after"  # "before", "after", or "override"
+
+# Studio Launcher Extensions (rez-rs; all default to False/None for strict Rez 3.4.0 parity)
+diagnose_conflicts_on_fail = True
+clean_room_environment = bool(os.environ.get("FARM_JOB_ID"))
+supervise_processes = True
+crash_report_dir = f"/shows/{show}/logs/rez_crashes"
+merged_directory_strategy = "auto"
+merged_directory_subdirs = ["bin", "lib", "include", "python", "plugins"]
+
 # Debugging (disabled in production)
 debug_all = False
 warn_untimestamped = True
 ```
+

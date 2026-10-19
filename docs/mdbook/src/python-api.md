@@ -51,7 +51,7 @@ A CPython installation is required to import the extension. The CLI remains self
 |---|---|
 | `rez.version` | Alphanumeric tokens, Version comparison/hash/components/copy/trim/next, VersionRange membership and set operations, Requirement parsing/conflicts, VersionedObject |
 | `rez.packages` | Family/package iteration, exact/latest lookup, request-string lookup, developer metadata, Package/Variant metadata, requirements, selected roots and variant handles |
-| `rez.resolved_context` | Resolving requests, status/failure inspection, requested/resolved packages, environment reconstruction, canonical .rxt save/load, current-context loading |
+| `rez.resolved_context` | Resolving requests, status/failure inspection, requested/resolved packages, environment reconstruction (`get_environ`), `print_info`, `execute_command`, canonical `.rxt` save/load, current-context loading |
 | `rez.config` | Read-only canonical configuration snapshot |
 | `rez.exceptions` / `rez.status` | Backend exception classes and resolver statuses |
 
@@ -71,9 +71,13 @@ context = ResolvedContext(
 )
 if context.success:
     environment = context.get_environ()
+    context.print_info()
     context.save("example.rxt")
 else:
     print(context.failure_description)
+    # Explain conflicts using QuickXplain MUS + minimal version relaxation hints
+    diag = rs.context_diagnose_conflicts(["example-1"], package_paths=paths)
+    print(diag["formatted_report"])
 
 # Direct native access returns plain Python metadata mappings.
 print(rs.version_info("1.2"))
@@ -81,13 +85,22 @@ print(rs.version_info("1.2"))
 
 `get_environ(parent_environ)` returns variables produced by Rex; the parent supplies inherited values for lookup and expansion. It does not copy every unchanged parent variable into its result.
 
-Configure `REZ_CONFIG_FILE` and other Rez environment settings before the first backend configuration access. The read-only snapshot includes `sources_path`, `wheel_cache_path`, `user_path`, `offline`, `repo_path`, and `log_level`, using the same [shared configuration contract](configuration.md#shared-source-cache-and-offline-settings) as the CLI. PBS-specific recipe overrides remain build-environment variables. The configuration owner captures process settings once; `config.override` is explicitly unsupported.
+Configure `REZ_CONFIG_FILE` and other Rez environment settings before the first backend configuration access. The read-only snapshot includes `sources_path`, `wheel_cache_path`, `user_path`, `offline`, `repo_path`, `log_level`, and the studio launcher settings (`diagnose_conflicts_on_fail`, `clean_room_environment`, `supervise_processes`, `crash_report_dir`, `merged_directory_strategy`, `merged_directory_subdirs`), using the same [shared configuration contract](configuration.md#shared-source-cache-and-offline-settings) as the CLI. PBS-specific recipe overrides remain build-environment variables. The configuration owner captures process settings once; `config.override` is explicitly unsupported.
 
-Custom token factories, permissive bound parsing, repository/plugin wrapper objects, context-bound deferred Python metadata, custom solver callbacks/filters/orderers, subprocess/shell execution, testing and package-cache options, and the complete upstream `rez.cli` / build / shell / utility API remain open work. Unsupported exposed options raise `NotImplementedError`; absent APIs are not silently emulated. The private `rez.bld` API is still outside the accepted scope.
+Custom token factories, permissive bound parsing, repository/plugin wrapper objects, context-bound deferred Python metadata, custom solver callbacks/filters/orderers, full `execute_shell` / `execute_rex_code` parity, testing and package-cache options, and the complete upstream `rez.cli` / build / shell / utility API remain open work. Unsupported exposed options raise `NotImplementedError`; absent APIs are not silently emulated. The private `rez.bld` API is still outside the accepted scope.
 
-## Native namespace
+## Native namespace (`rez.rs`)
 
-`rez.rs` is the compiled extension. It exposes version/range/requirement primitives, `packages`, `package_families`, `developer_package`, `package_from_handle`, `resolve_context`, `context_environ`, `context_save`, `context_load`, and `config_snapshot`. Metadata results are ordinary dictionaries and lists. Serialized context inputs use the canonical context JSON document, not a second context schema.
+`rez.rs` is the compiled extension. It exposes:
+
+- **Core Rez primitives**: version/range/requirement primitives, `packages`, `package_families`, `developer_package`, `package_from_handle`, `resolve_context`, `context_environ`, `context_info`, `context_save`, `context_load`, and `config_snapshot`.
+- **Studio launcher extensions**:
+  - `context_diagnose_conflicts(package_requests, ...)` -- QuickXplain MUS root-cause extraction and concrete version relaxation suggestions.
+  - `context_inspect_environment(serialized_json, parent_environ=None, clean_room=False)` -- host environment leak detection and Clean-Room baseline inspection.
+  - `context_materialize_merged_directory(serialized_json, dest_dir, subdirs=None, strategy="auto")` -- virtual merged directory creation (`hardlink` -> `symlink` -> `copy`).
+  - `classify_exit_code(code)` -- cross-platform exit code, Unix signal, and Windows `NTSTATUS` (`0xC0000005`, `0xC0000135`, `0xC0000409`, etc.) crash classification.
+
+Metadata results are ordinary dictionaries and lists. Serialized context inputs use the canonical context JSON document, not a second context schema.
 
 `crates/rez/python-api` owns the extension and facade. It uses PyO3 0.29.3; no version/solver algorithm is duplicated in the wrappers. Packaging sets `PYO3_BUILD_EXTENSION_MODULE=1` only for the extension build, allowing ordinary Rust tests and Clippy to retain their normal linking behavior. Cargo tests can rebuild the shared DLL with their linking settings; run packaging after tests and Clippy so the staged extension matches the final Cargo output. CI follows this order.
 

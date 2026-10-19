@@ -208,12 +208,30 @@ pub struct RezConfig {
     pub package_orderers: Option<serde_json::Value>,
     pub allow_unversioned_packages: bool,
     pub error_on_missing_variant_requires: bool,
+    /// Automatically run and print "Why-Not" conflict diagnostics when a resolve fails in `rez env`.
+    #[serde(default)]
+    pub diagnose_conflicts_on_fail: bool,
 
     // -- Environment resolution --
     pub parent_variables: Vec<String>,
     pub all_parent_variables: bool,
     /// Start resolved shells from the OS baseline and explicit parent allowlist.
     pub clean_shell_environment: bool,
+    /// Surgically strip hazardous host variables (PYTHONPATH, LD_LIBRARY_PATH, QT_PLUGIN_PATH, etc.) while keeping OS/display session vars.
+    #[serde(default)]
+    pub clean_room_environment: bool,
+    /// Always supervise child processes in `rez env` and write a forensics telemetry bundle (.json + .rxt).
+    #[serde(default)]
+    pub supervise_processes: bool,
+    /// Directory where crash forensics and supervision bundles (.json + .rxt) are written.
+    #[serde(default)]
+    pub crash_report_dir: Option<String>,
+    /// Default link strategy ("auto", "symlink", "hardlink", "copy") for virtual merged directories (--merge-dir).
+    #[serde(default = "default_merged_directory_strategy")]
+    pub merged_directory_strategy: String,
+    /// Default package subdirectories merged when materializing a virtual merged directory (--merge-dir).
+    #[serde(default = "default_merged_directory_subdirs")]
+    pub merged_directory_subdirs: Vec<String>,
     /// Append system paths to PATH after all package commands.
     pub append_sys_path: bool,
     pub resetting_variables: Vec<String>,
@@ -400,11 +418,17 @@ impl Default for RezConfig {
             package_orderers: None,
             allow_unversioned_packages: true,
             error_on_missing_variant_requires: true,
+            diagnose_conflicts_on_fail: false,
 
             // Environment
             parent_variables: vec![],
             all_parent_variables: false,
             clean_shell_environment: false,
+            clean_room_environment: false,
+            supervise_processes: false,
+            crash_report_dir: None,
+            merged_directory_strategy: default_merged_directory_strategy(),
+            merged_directory_subdirs: default_merged_directory_subdirs(),
             append_sys_path: true,
             resetting_variables: vec![],
             all_resetting_variables: false,
@@ -771,6 +795,8 @@ impl RezConfig {
         let prompt_release = fmt_bool(c.prompt_release_message);
         let make_writable = fmt_bool(c.make_package_temporarily_writable);
         let std_system_paths = fmt_list(&c.standard_system_paths);
+        let merged_strategy = fmt_str(&c.merged_directory_strategy);
+        let merged_subdirs = fmt_list(&c.merged_directory_subdirs);
         let build_dir = fmt_str(&c.build_directory);
         let package_commands_sourced_first = fmt_bool(c.package_commands_sourced_first);
         let pathed_env_vars = fmt_list(&c.pathed_env_vars);
@@ -876,9 +902,21 @@ variant_select_mode = {variant_select}
 allow_unversioned_packages = {allow_unversioned_packages}
 # Fail immediately if variant requires missing package (vs trying other variants).
 error_on_missing_variant_requires = {error_on_missing_variant_requires}
+# Automatically print "Why-Not" conflict diagnostics and upgrade hints on failed resolves.
+diagnose_conflicts_on_fail = {diagnose_conflicts_on_fail}
 
 # Start resolved shells with OS defaults and only parent_variables inherited.
 clean_shell_environment = {clean_shell_environment}
+# Surgically strip hazardous host runtime variables (PYTHONPATH, LD_LIBRARY_PATH, QT_PLUGIN_PATH, etc.) while keeping OS/display session vars.
+clean_room_environment = {clean_room_environment}
+# Always supervise child processes in rez-env and write a forensics telemetry bundle (.json + .rxt).
+supervise_processes = {supervise_processes}
+# Directory where crash forensics and supervision bundles (.json + .rxt) are written. None = <system_temp>/rez-crash-reports.
+crash_report_dir = None
+# Default link strategy ("auto" | "symlink" | "hardlink" | "copy") for virtual merged directories (--merge-dir).
+merged_directory_strategy = {merged_strategy}
+# Default package subdirectories merged when materializing a virtual merged directory (--merge-dir).
+merged_directory_subdirs = {merged_subdirs}
 # Append system paths after all package commands, so packages shadow host tools.
 append_sys_path = {append_sys_path}
 # Default shell for rez-env. Empty = auto-detect (bash/cmd/PowerShell).
@@ -894,6 +932,8 @@ package_commands_sourced_first = {package_commands_sourced_first}
 # System paths appended by append_sys_path. Empty = OS defaults.
 standard_system_paths = {std_system_paths}
 
+# Global package preprocessing function (module.func string or callable in rezconfig.py).
+package_preprocess_function = None
 # Preprocess order: "before" | "after" | "override".
 package_preprocess_mode = {preprocess_mode}
 # Directory for rez-build. Relative to package.
@@ -946,12 +986,17 @@ debug_old_commands = {debug_old_commands}
             prune_failed_graph = fmt_bool(c.prune_failed_graph),
             allow_unversioned_packages = fmt_bool(c.allow_unversioned_packages),
             error_on_missing_variant_requires = fmt_bool(c.error_on_missing_variant_requires),
+            diagnose_conflicts_on_fail = fmt_bool(c.diagnose_conflicts_on_fail),
             clean_shell_environment = fmt_bool(c.clean_shell_environment),
+            clean_room_environment = fmt_bool(c.clean_room_environment),
+            supervise_processes = fmt_bool(c.supervise_processes),
             append_sys_path = fmt_bool(c.append_sys_path),
             default_shell = default_shell,
             pathed_env_vars = pathed_env_vars,
             package_commands_sourced_first = package_commands_sourced_first,
             std_system_paths = std_system_paths,
+            merged_strategy = merged_strategy,
+            merged_subdirs = merged_subdirs,
             build_dir = build_dir,
             rez_1_environment_variables = fmt_bool(c.rez_1_environment_variables),
             disable_rez_1_compatibility = fmt_bool(c.disable_rez_1_compatibility),
@@ -1695,6 +1740,20 @@ pub fn load_rezconfig_py(
 // ---------------------------------------------------------------------------
 // Helper: environment variable names and typed values
 // ---------------------------------------------------------------------------
+
+fn default_merged_directory_strategy() -> String {
+    "auto".into()
+}
+
+fn default_merged_directory_subdirs() -> Vec<String> {
+    vec![
+        "bin".into(),
+        "lib".into(),
+        "include".into(),
+        "python".into(),
+        "plugins".into(),
+    ]
+}
 
 fn config_environment_name(key: &str) -> String {
     match key {
@@ -3166,5 +3225,75 @@ variant_select_mode = "intersection_priority"
 
         // Cleanup
         std::env::remove_var("REZ_DISABLE_HOME_CONFIG");
+    }
+
+    #[test]
+    fn test_studio_launcher_config_settings() {
+        let def = RezConfig::default();
+        assert!(!def.diagnose_conflicts_on_fail);
+        assert!(!def.clean_room_environment);
+        assert!(!def.supervise_processes);
+        assert_eq!(def.crash_report_dir, None);
+        assert_eq!(def.merged_directory_strategy, "auto");
+        assert_eq!(
+            def.merged_directory_subdirs,
+            vec!["bin", "lib", "include", "python", "plugins"]
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let py_file = dir.path().join("rezconfig.py");
+        std::fs::write(
+            &py_file,
+            r#"
+diagnose_conflicts_on_fail = True
+clean_room_environment = True
+supervise_processes = True
+crash_report_dir = "/studio/logs/rez_crashes"
+merged_directory_strategy = "hardlink"
+merged_directory_subdirs = ["bin", "python"]
+package_preprocess_function = "studio_hooks.validate_pkg"
+package_preprocess_mode = "before"
+"#,
+        )
+        .unwrap();
+
+        let mut config = RezConfig::default();
+        config.merge_py_file(&py_file).unwrap();
+        assert!(config.diagnose_conflicts_on_fail);
+        assert!(config.clean_room_environment);
+        assert!(config.supervise_processes);
+        assert_eq!(
+            config.crash_report_dir.as_deref(),
+            Some("/studio/logs/rez_crashes")
+        );
+        assert_eq!(config.merged_directory_strategy, "hardlink");
+        assert_eq!(config.merged_directory_subdirs, vec!["bin", "python"]);
+        assert_eq!(
+            config.package_preprocess_function.as_deref(),
+            Some("studio_hooks.validate_pkg")
+        );
+        assert_eq!(
+            config.package_preprocess_mode,
+            PackagePreprocessMode::Before
+        );
+
+        let mut env_overrides = HashMap::new();
+        env_overrides.insert("REZ_DIAGNOSE_CONFLICTS_ON_FAIL".into(), "0".into());
+        env_overrides.insert("REZ_CLEAN_ROOM_ENVIRONMENT".into(), "false".into());
+        env_overrides.insert("REZ_SUPERVISE_PROCESSES".into(), "false".into());
+        env_overrides.insert("REZ_MERGED_DIRECTORY_STRATEGY".into(), "copy".into());
+        env_overrides.insert(
+            "REZ_MERGED_DIRECTORY_SUBDIRS_JSON".into(),
+            r#"["bin","lib","shaders"]"#.into(),
+        );
+        config.apply_env_overrides(Some(&env_overrides)).unwrap();
+        assert!(!config.diagnose_conflicts_on_fail);
+        assert!(!config.clean_room_environment);
+        assert!(!config.supervise_processes);
+        assert_eq!(config.merged_directory_strategy, "copy");
+        assert_eq!(
+            config.merged_directory_subdirs,
+            vec!["bin", "lib", "shaders"]
+        );
     }
 }

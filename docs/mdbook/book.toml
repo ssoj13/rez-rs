@@ -6,3 +6,14 @@ src = "src"
 
 [build]
 build-dir = "../build"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/ssoj13/rez-rs"
+edit-url-template = "https://github.com/ssoj13/rez-rs/edit/main/docs/mdbook/{path}"
+
+[output.html.fold]
+enable = true
+level = 1
+

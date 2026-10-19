@@ -2143,7 +2143,8 @@ impl ResolvedContext {
         };
 
         let platform = crate::platform::Platform::current();
-        let (baseline_parent, sanitized_leaks) = if clean_room {
+        let effective_clean_room = clean_room || CONFIG.clean_room_environment;
+        let (baseline_parent, sanitized_leaks) = if effective_clean_room {
             crate::cleanroom::sanitize_host_environ(platform, host, &CONFIG.parent_variables)
         } else if CONFIG.clean_shell_environment {
             let cleaned =
@@ -2165,7 +2166,7 @@ impl ResolvedContext {
         }
 
         Ok(crate::cleanroom::EnvInspectionReport {
-            clean_room_enabled: clean_room || CONFIG.clean_shell_environment,
+            clean_room_enabled: effective_clean_room || CONFIG.clean_shell_environment,
             sanitized_leaks,
             active_leaks,
             package_defined_vars,
@@ -2183,7 +2184,17 @@ impl ResolvedContext {
     ) -> Result<crate::cleanroom::MergedDirManifest> {
         self.require_success()?;
         let packages = self.execution_packages(None)?;
-        crate::cleanroom::materialize_merged_directory(&packages, dest_dir, subdirs, strategy)
+        let effective_subdirs = if subdirs.is_empty() {
+            CONFIG.merged_directory_subdirs.as_slice()
+        } else {
+            subdirs
+        };
+        crate::cleanroom::materialize_merged_directory(
+            &packages,
+            dest_dir,
+            effective_subdirs,
+            strategy,
+        )
     }
 
     /// Execute a shell or command with native process supervision, exit/signal/NTSTATUS
@@ -2208,6 +2219,7 @@ impl ResolvedContext {
         self.require_success()?;
         let host_env = std::env::vars().collect::<HashMap<_, _>>();
         let platform = crate::platform::Platform::current();
+        let effective_clean_room = clean_room || CONFIG.clean_room_environment;
 
         let (effective_parent, sanitized_leaks, active_leaks) = match parent_environ {
             Some(explicit) => {
@@ -2217,7 +2229,7 @@ impl ResolvedContext {
                     .collect();
                 (Some(explicit), Vec::new(), active)
             }
-            None if clean_room => {
+            None if effective_clean_room => {
                 let (clean_map, stripped) = crate::cleanroom::sanitize_host_environ(
                     platform,
                     &host_env,
@@ -2249,7 +2261,9 @@ impl ResolvedContext {
         let finished_ms = crate::supervisor::now_epoch_ms();
 
         let classification = crate::supervisor::classify_exit_status(&status);
-        let should_write = classification.is_crash_or_loader_failure() || always_write_report;
+        let should_write = classification.is_crash_or_loader_failure()
+            || always_write_report
+            || CONFIG.supervise_processes;
         let resolved_env = if should_write {
             self.get_environ(parent_for_forensics).unwrap_or_default()
         } else {
@@ -2273,6 +2287,13 @@ impl ResolvedContext {
         let written_paths = if should_write {
             let target_dir = crash_report_dir
                 .map(Path::to_path_buf)
+                .or_else(|| {
+                    CONFIG
+                        .crash_report_dir
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|s| crate::config::RezConfig::expand_path(s).to_os())
+                })
                 .or_else(|| {
                     std::env::var_os("REZ_CRASH_REPORT_DIR")
                         .filter(|v| !v.is_empty())
@@ -7236,8 +7257,8 @@ env.REZ_TEST_PATH.append(literal("second"))
         // 1. Inspect environment with simulated host leaks
         let mut fake_host = HashMap::new();
         fake_host.insert(
-            "PYTHONPATH".to_string(),
-            "/leaked/site-packages".to_string(),
+            "MAYA_PLUG_IN_PATH".to_string(),
+            "/leaked/maya/plugins".to_string(),
         );
         fake_host.insert("HOUDINI_PATH".to_string(), "/leaked/houdini".to_string());
         fake_host.insert("DISPLAY".to_string(), ":0".to_string());

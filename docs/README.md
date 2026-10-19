@@ -7,7 +7,7 @@ mdbook build docs/mdbook
 mdbook serve docs/mdbook
 ```
 
-Generated HTML goes to `docs/build/`. It is ignored by Git and excluded from source packages.
+Generated HTML goes to `docs/build/`. It is ignored by Git, excluded from source packages, and published automatically to GitHub Pages by [`.github/workflows/pages.yml`](../.github/workflows/pages.yml).
 
 [Plan30](plans/plan30.md) is the only retained compatibility work plan. Previous plans and audit reports were removed from this source snapshot. The plan supports development and is outside the book's navigation.
 

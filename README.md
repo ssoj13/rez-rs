@@ -11,6 +11,7 @@ A Rust port of the [Rez package manager](https://github.com/AcademySoftwareFound
 - Rex environment commands and eight shell backends: bash, sh, zsh, csh, tcsh, cmd, PowerShell, and Git Bash.
 - Package build, install, release, copy, move, cache, and bundle operations.
 - Build adapters for CMake, Make, Python, Pip, Cargo, Go, Zig, Node.js, Bun, SCons, vcpkg, Conan, extraction, custom commands, and no-op builds. Adapter presence does not establish complete native acceptance.
+- Opt-in studio launcher extensions (disabled by default for strict Rez 3.4.0 compatibility; configurable via `rezconfig.py`, `REZ_*` env vars, or `rez env` CLI flags): QuickXplain MUS conflict root-cause diagnostics (`--why-not`), Clean-Room host environment sanitization (`--clean-room`, `--inspect-env`), virtual merged directories (`--merge-dir`), and native process supervision with crash forensics (`--supervise`, `--crash-report-dir`).
 - An optional egui GUI, enabled by the default `gui` feature.
 
 The CLI embeds its Python interpreter. Software managed by Rez and the tools selected by package recipes still need to be available. CPython extension modules such as NumPy cannot be imported into the embedded VM. A separate CPython distribution provides initial Rez-compatible imports, with Rust-specific access in `rez.rs`. Full Python API parity and the custom `rez.bld` API remain outside the accepted scope; see [Python API](docs/mdbook/src/python-api.md).
