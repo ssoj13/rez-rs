@@ -7,12 +7,15 @@ use rex as shell;
 #[cfg(feature = "amqp")]
 pub mod amqp;
 pub mod bundle_context;
+pub mod cleanroom;
 pub mod context;
+pub mod diagnostics;
 pub mod package;
 pub mod python_vm;
 pub mod resolver;
 pub mod solver;
 pub mod status;
 pub mod suite;
+pub mod supervisor;
 pub use context::*;
 pub use resolver::*;

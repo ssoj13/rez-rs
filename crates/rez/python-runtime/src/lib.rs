@@ -603,11 +603,15 @@ pub fn exec_py_globals(
                 })?;
 
             vm.run_code_obj(code_obj, scope.clone()).map_err(|e| {
-                RezError::Python(format!(
-                    "Python exec error in {}: {}",
-                    filename,
-                    pyerr_str(vm, &e)
-                ))
+                let err_str = pyerr_str(vm, &e);
+                if err_str.starts_with("InvalidPackageError:") {
+                    RezError::InvalidPackage(format!(
+                        "Python exec error in {}: {}",
+                        filename, err_str
+                    ))
+                } else {
+                    RezError::Python(format!("Python exec error in {}: {}", filename, err_str))
+                }
             })?;
 
             // Collect globals → HashMap<String, Value>

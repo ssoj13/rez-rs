@@ -538,6 +538,17 @@ fn parsed_cache_key(path: &Path, content: &str) -> String {
     hasher.update(path.to_string_lossy().as_bytes());
     hasher.update([0]);
     hasher.update(content.as_bytes());
+    if let Some(ref preproc) = crate::config::CONFIG.package_preprocess_function {
+        hasher.update([0]);
+        hasher.update(preproc.as_bytes());
+        hasher.update([0]);
+        let mode_str = match crate::config::CONFIG.package_preprocess_mode {
+            crate::config::PreprocessMode::Before => "before",
+            crate::config::PreprocessMode::After => "after",
+            crate::config::PreprocessMode::Override => "override",
+        };
+        hasher.update(mode_str.as_bytes());
+    }
     hasher
         .finalize()
         .iter()
@@ -612,8 +623,34 @@ pub fn load_from_file_with_objects(
     early_objects: &HashMap<String, Value>,
 ) -> Result<HashMap<String, Value>> {
     let mut data = match format {
-        FileFormat::Yaml => load_yaml(path),
-        FileFormat::Toml => load_toml(path),
+        FileFormat::Yaml => {
+            let mut d = load_yaml(path)?;
+            if let Some(ref preproc) = crate::config::CONFIG.package_preprocess_function {
+                if !preproc.is_empty() {
+                    apply_global_preprocess_to_data(
+                        &mut d,
+                        &path.to_string_lossy(),
+                        &crate::config::CONFIG.package_definition_build_python_paths,
+                        preproc,
+                    )?;
+                }
+            }
+            Ok(d)
+        }
+        FileFormat::Toml => {
+            let mut d = load_toml(path)?;
+            if let Some(ref preproc) = crate::config::CONFIG.package_preprocess_function {
+                if !preproc.is_empty() {
+                    apply_global_preprocess_to_data(
+                        &mut d,
+                        &path.to_string_lossy(),
+                        &crate::config::CONFIG.package_definition_build_python_paths,
+                        preproc,
+                    )?;
+                }
+            }
+            Ok(d)
+        }
         FileFormat::Py => {
             let cache_dir = match (cache, early_objects.is_empty()) {
                 (PackageDataCache::Enabled, true) => parsed_cache_dir(),
@@ -1669,6 +1706,29 @@ fn exec_package_py_with_context(
     early_objects: &HashMap<String, Value>,
     include_paths: Option<&[String]>,
 ) -> Result<HashMap<String, Value>> {
+    let preprocess_fn = crate::config::CONFIG.package_preprocess_function.clone();
+    let preprocess_mode = crate::config::CONFIG.package_preprocess_mode.clone();
+    exec_package_py_with_options(
+        content,
+        filename,
+        build_python_paths,
+        early_objects,
+        include_paths,
+        preprocess_fn.as_deref(),
+        &preprocess_mode,
+    )
+}
+
+/// Execute a package definition with explicit preprocess configuration.
+fn exec_package_py_with_options(
+    content: &str,
+    filename: &str,
+    build_python_paths: &[String],
+    early_objects: &HashMap<String, Value>,
+    include_paths: Option<&[String]>,
+    preprocess_function: Option<&str>,
+    preprocess_mode: &crate::config::PreprocessMode,
+) -> Result<HashMap<String, Value>> {
     // Preamble: marker classes for @early/@late decorators + helper stubs.
     // @early → call function immediately after exec, store return value.
     // @late  → store function source as string (deferred to resolve time).
@@ -1712,6 +1772,27 @@ class _EarlyThis(object):
                 "late binding function: '%s'" % attr)
         return value
 
+class _PreprocessThis(object):
+    """The `this` object for package preprocess(this, data) functions."""
+    def __init__(self, data, filepath):
+        object.__setattr__(self, "_data", data)
+        object.__setattr__(self, "_filepath", filepath)
+    @property
+    def filepath(self):
+        return self._filepath
+    @property
+    def root(self):
+        return _os.path.dirname(self._filepath) if self._filepath else None
+    def __getattr__(self, attr):
+        if attr in self._data:
+            return self._data[attr]
+        raise AttributeError("No such package attribute '%s'" % attr)
+    def __setattr__(self, attr, val):
+        if attr.startswith("_"):
+            object.__setattr__(self, attr, val)
+        else:
+            self._data[attr] = val
+
 _REZ_DEFAULT_OBJECTS = {
     "building": False,
     "testing": False,
@@ -1730,35 +1811,70 @@ def get_objects():
     return _rez_get_objects()
 
 class _ScopeContext(object):
-    """Stub for scope context manager used in package.py config overrides."""
+    """Context manager for `with scope("name") [as c]:` blocks in package.py."""
     def __init__(self):
-        self._stack = [{}]
-        self._current_scope = None
+        object.__setattr__(self, "_root", {})
+        object.__setattr__(self, "_pending", [])
+        object.__setattr__(self, "_active", [])
     def __call__(self, name):
-        self._current_scope = name
+        self._pending.append(name)
         return self
     def __enter__(self):
-        self._stack.append({})
+        name = self._pending.pop() if self._pending else "default"
+        self._active.append((name, {}, dict(globals())))
         return self
     def __exit__(self, *args):
-        top = self._stack.pop()
-        if self._stack:
-            scope_name = self._current_scope if self._current_scope else 'default'
-            if scope_name not in self._stack[-1]:
-                self._stack[-1][scope_name] = {}
-            self._stack[-1][scope_name].update(top)
-    def __setattr__(self, k, v):
-        if k.startswith('_'):
-            object.__setattr__(self, k, v)
+        if not self._active:
+            return False
+        scope_name, top, snap = self._active.pop()
+        g = globals()
+        for gk, gv in list(g.items()):
+            if gk.startswith("_") or gk == "scope":
+                continue
+            if gv is self:
+                if gk in snap:
+                    g[gk] = snap[gk]
+                else:
+                    del g[gk]
+                continue
+            if gk not in snap or snap[gk] is not gv:
+                top[gk] = gv
+                if gk in snap:
+                    g[gk] = snap[gk]
+                else:
+                    del g[gk]
+        if self._active:
+            parent_top = self._active[-1][1]
+            if isinstance(parent_top.get(scope_name), dict):
+                parent_top[scope_name].update(top)
+            else:
+                parent_top[scope_name] = top
         else:
-            self._stack[-1][k] = v
+            if isinstance(self._root.get(scope_name), dict):
+                self._root[scope_name].update(top)
+            else:
+                self._root[scope_name] = dict(top)
+            if isinstance(g.get(scope_name), dict):
+                g[scope_name].update(self._root[scope_name])
+            else:
+                g[scope_name] = dict(self._root[scope_name])
+        return False
+    def __setattr__(self, k, v):
+        if k.startswith("_"):
+            object.__setattr__(self, k, v)
+        elif self._active:
+            self._active[-1][1][k] = v
+        else:
+            self._root[k] = v
     def __getattr__(self, k):
-        for d in reversed(self._stack):
+        for _, d, _ in reversed(self._active):
             if k in d:
                 return d[k]
+        if k in self._root:
+            return self._root[k]
         return self
     def to_dict(self):
-        return dict(self._stack[0]) if self._stack else {}
+        return dict(self._root)
 
 scope = _ScopeContext()
 
@@ -1782,7 +1898,7 @@ def include(name, *names):
     return decorated
 "#;
 
-    // Postamble: resolve @early (call now), stringify @late and rex callables
+    // Postamble: resolve @early (call now), stringify @late and rex callables, and apply preprocess
     let execution = r#"
 import sys as _rez_sys
 _rez_saved_sys_path = list(_rez_sys.path)
@@ -1817,11 +1933,27 @@ finally:
     let postamble = r#"
 def _rez_post_process():
     import inspect
+    import types as _rez_types
     _rex = {"commands", "pre_commands", "post_commands", "pre_build_commands", "pre_test_commands"}
+    _internal_names = {
+        "early", "late", "ModifyList", "InvalidPackageError", "include", "get_objects",
+        "_EarlyMarker", "_LateMarker", "_EarlyThis", "_PreprocessThis", "_ScopeContext",
+        "_pkg_source", "_pkg_filename", "_REZ_BUILD_PYTHON_PATHS", "_REZ_INCLUDE_PATHS",
+        "_REZ_EARLY_OBJECTS", "_REZ_PREPROCESS_FUNCTION", "_REZ_PREPROCESS_MODE",
+        "_rez_post_process", "_data", "_os", "_REZ_DEFAULT_OBJECTS", "_rez_get_objects",
+        "_rez_include_immediate", "_rez_ast", "_rez_tree", "_rez_decorator_calls",
+        "_rez_edits", "_rez_node", "_rez_lines", "_rez_row", "_rez_start", "_rez_end",
+        "_rez_line", "_rez_sys", "_rez_saved_sys_path", "_rez_linecache", "_rez_source_lines",
+        "scope", "this", "building", "testing", "build_variant_index", "build_variant_requires",
+        "_Requirement", "_RequirementRange", "_rez_version_native",
+    }
     def _extract(func):
         includes = getattr(func, "_rez_includes", [])
         prefix = "@include(%s)\n" % ", ".join(repr(name) for name in includes) if includes else ""
-        lines, _ = inspect.getsourcelines(func)
+        try:
+            lines, _ = inspect.getsourcelines(func)
+        except OSError:
+            lines = []
         name = func.__name__
         offset = None
         for index, line in enumerate(lines):
@@ -1857,29 +1989,103 @@ def _rez_post_process():
             raise RuntimeError("function source does not include its definition")
         source_lines = _pkg_source.splitlines(True)
         return prefix + ''.join(source_lines[definition.lineno - 1:definition.end_lineno]).rstrip()
+
     g = globals()
+
+    def _process_target_dict(target, current_data):
+        for k in list(target.keys()):
+            v = target[k]
+            if isinstance(v, _EarlyMarker):
+                func = v.func
+                args = func.__code__.co_argcount + func.__code__.co_kwonlyargcount
+                if args not in (0, 1):
+                    raise TypeError("@early decorated function must take zero or one args only")
+                saved_globals = g.copy()
+                g["this"] = _EarlyThis(current_data)
+                g.update(_rez_get_objects())
+                try:
+                    early_value = func(current_data) if args else func()
+                finally:
+                    g.clear()
+                    g.update(saved_globals)
+                target[k] = early_value
+                current_data[k] = early_value
+            elif isinstance(v, _LateMarker):
+                extracted = _extract(v.func)
+                target[k] = extracted
+                current_data[k] = extracted
+            elif k in _rex and callable(v):
+                extracted = _extract(v)
+                target[k] = extracted
+                current_data[k] = extracted
+
     # Keep package globals intact while evaluating each early-bound function.
     _data = {k2: v2 for k2, v2 in g.items() if not k2.startswith('_')}
-    for k in list(g.keys()):
-        v = g[k]
-        if isinstance(v, _EarlyMarker):
-            func = v.func
-            args = func.__code__.co_argcount + func.__code__.co_kwonlyargcount
-            if args not in (0, 1):
-                raise TypeError("@early decorated function must take zero or one args only")
-            saved_globals = g.copy()
-            g["this"] = _EarlyThis(_data)
-            g.update(_rez_get_objects())
-            try:
-                early_value = func(_data) if args else func()
-            finally:
-                g.clear()
-                g.update(saved_globals)
-            g[k] = early_value
-        elif isinstance(v, _LateMarker):
-            g[k] = _extract(v.func)
-        elif k in _rex and callable(v):
-            g[k] = _extract(v)
+    _process_target_dict(g, _data)
+
+    # Resolve package-level and global preprocess functions if present.
+    _pkg_preproc = g.get("preprocess") if callable(g.get("preprocess")) else None
+    if isinstance(g.get("preprocess"), (_EarlyMarker, _LateMarker)):
+        _pkg_preproc = g["preprocess"].func
+    _global_preproc = None
+    if _REZ_PREPROCESS_FUNCTION:
+        _saved_path = list(_rez_sys.path)
+        try:
+            _rez_sys.path[:0] = _REZ_BUILD_PYTHON_PATHS
+            if "." in _REZ_PREPROCESS_FUNCTION:
+                _mod_name, _fn_name = _REZ_PREPROCESS_FUNCTION.rsplit(".", 1)
+                _mod = __import__(_mod_name, fromlist=[_fn_name])
+                setattr(_mod, "InvalidPackageError", InvalidPackageError)
+                _cand = getattr(_mod, _fn_name, None)
+                if callable(_cand):
+                    _global_preproc = _cand
+            elif callable(g.get(_REZ_PREPROCESS_FUNCTION)):
+                _global_preproc = g[_REZ_PREPROCESS_FUNCTION]
+        finally:
+            _rez_sys.path[:] = _saved_path
+
+    if _REZ_PREPROCESS_MODE == "before":
+        _preprocessors = [_pkg_preproc, _global_preproc]
+    elif _REZ_PREPROCESS_MODE == "after":
+        _preprocessors = [_global_preproc, _pkg_preproc]
+    else:
+        _preprocessors = [_pkg_preproc or _global_preproc]
+    _preprocessors = [_p for _p in _preprocessors if callable(_p)]
+
+    if _preprocessors:
+        _builtins_dict = __builtins__ if isinstance(__builtins__, dict) else getattr(__builtins__, "__dict__", {})
+        _preproc_data = {}
+        for _k, _v in g.items():
+            if _k.startswith("_") or _k in _internal_names or _k == "preprocess":
+                continue
+            if _k in _builtins_dict and _builtins_dict[_k] is _v:
+                continue
+            if isinstance(_v, _rez_types.ModuleType) or callable(_v):
+                continue
+            _preproc_data[_k] = _v
+
+        _this_obj = _PreprocessThis(_preproc_data, _pkg_filename)
+        _saved_path = list(_rez_sys.path)
+        try:
+            _rez_sys.path[:0] = _REZ_BUILD_PYTHON_PATHS
+            for _preproc in _preprocessors:
+                try:
+                    _preproc(this=_this_obj, data=_preproc_data)
+                except TypeError:
+                    _preproc(_this_obj, _preproc_data)
+        finally:
+            _rez_sys.path[:] = _saved_path
+
+        _process_target_dict(_preproc_data, _preproc_data)
+        # Synchronize mutated/added/removed keys back into globals `g`.
+        for _k in list(g.keys()):
+            if not _k.startswith("_") and _k not in _internal_names and _k not in _preproc_data:
+                if _k not in _builtins_dict or _builtins_dict[_k] is not g[_k]:
+                    del g[_k]
+        for _k, _v in _preproc_data.items():
+            g[_k] = _v
+
+    g.pop("preprocess", None)
 _rez_post_process()
 "#;
 
@@ -1890,6 +2096,12 @@ _rez_post_process()
         execution,
         postamble
     );
+
+    let mode_str = match preprocess_mode {
+        crate::config::PreprocessMode::Before => "before",
+        crate::config::PreprocessMode::After => "after",
+        crate::config::PreprocessMode::Override => "override",
+    };
 
     // Inject source and evaluation context while keeping package-only paths scoped.
     let mut inject = HashMap::new();
@@ -1904,6 +2116,16 @@ _rez_post_process()
     inject.insert(
         "_REZ_BUILD_PYTHON_PATHS".to_string(),
         serde_json::json!(build_python_paths),
+    );
+    inject.insert(
+        "_REZ_PREPROCESS_FUNCTION".to_string(),
+        preprocess_function
+            .map(|s| Value::String(s.to_owned()))
+            .unwrap_or(Value::Null),
+    );
+    inject.insert(
+        "_REZ_PREPROCESS_MODE".to_string(),
+        Value::String(mode_str.to_owned()),
     );
     let include_paths: Vec<String> = include_paths.map_or_else(
         || {
@@ -1940,20 +2162,23 @@ _rez_post_process()
             "InvalidPackageError",
             "include",
             "get_objects",
+            "preprocess",
             "_EarlyMarker",
             "_LateMarker",
             "_EarlyThis",
+            "_PreprocessThis",
             "_ScopeContext",
             "_pkg_source",
             "_pkg_filename",
             "_REZ_BUILD_PYTHON_PATHS",
             "_REZ_INCLUDE_PATHS",
             "_REZ_EARLY_OBJECTS",
+            "_REZ_PREPROCESS_FUNCTION",
+            "_REZ_PREPROCESS_MODE",
             "_rez_post_process",
             "_data",
             "_os",
             "_REZ_DEFAULT_OBJECTS",
-            "_REZ_EARLY_OBJECTS",
             "_rez_get_objects",
             "_rez_include_immediate",
             "_rez_ast",
@@ -1978,6 +2203,31 @@ _rez_post_process()
             "build_variant_requires",
         ],
     )
+}
+
+/// Apply global `package_preprocess_function` to already-loaded non-Python package data (YAML/TOML).
+fn apply_global_preprocess_to_data(
+    data: &mut HashMap<String, Value>,
+    filename: &str,
+    build_python_paths: &[String],
+    preprocess_function: &str,
+) -> Result<()> {
+    let mut objs = HashMap::new();
+    objs.insert(
+        "_rez_initial_pkg_data".to_string(),
+        Value::Object(data.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+    );
+    let res = exec_package_py_with_options(
+        "for _k, _v in _REZ_EARLY_OBJECTS.get('_rez_initial_pkg_data', {}).items():\n    globals()[_k] = _v\n",
+        filename,
+        build_python_paths,
+        &objs,
+        None,
+        Some(preprocess_function),
+        &crate::config::PreprocessMode::Override,
+    )?;
+    *data = res;
+    Ok(())
 }
 
 /// Load a package.py file from disk.
@@ -4237,5 +4487,108 @@ include("nonexistent_module")
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("variants") && err.contains("string"));
+    }
+
+    #[test]
+    fn test_package_preprocess_local_and_global_modes_and_invalid_package_error() {
+        let dir = test_dir("package_preprocess_modes");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("studio_preproc.py"),
+            r#"
+def apply(this, data):
+    if this.name == "forbidden":
+        raise InvalidPackageError("forbidden package name")
+    order = list(data.get("order", []))
+    order.append("global:" + this.name)
+    data["order"] = order
+    data["global_root"] = this.root
+"#,
+        )
+        .unwrap();
+        let paths = vec![dir.to_string_lossy().into_owned()];
+
+        let pkg_source = r#"
+name = "maya_plugin"
+version = "1.0.0"
+with scope("config") as c:
+    release_packages_path = "/studio/rel"
+
+def preprocess(this, data):
+    order = list(data.get("order", []))
+    order.append("local:" + this.version)
+    data["order"] = order
+    this.custom_tag = "from_this"
+"#;
+
+        // 1. Before mode: local preprocess runs before global preprocess
+        let before_data = exec_package_py_with_options(
+            pkg_source,
+            "/tmp/maya_plugin/package.py",
+            &paths,
+            &HashMap::new(),
+            None,
+            Some("studio_preproc.apply"),
+            &crate::config::PreprocessMode::Before,
+        )
+        .unwrap();
+        assert_eq!(
+            before_data["order"],
+            serde_json::json!(["local:1.0.0", "global:maya_plugin"])
+        );
+        assert_eq!(before_data["custom_tag"], Value::String("from_this".into()));
+        assert_eq!(
+            before_data["global_root"],
+            Value::String("/tmp/maya_plugin".into())
+        );
+        assert_eq!(
+            before_data["config"]["release_packages_path"],
+            Value::String("/studio/rel".into())
+        );
+        assert!(!before_data.contains_key("preprocess"));
+
+        // 2. After mode: global preprocess runs before local preprocess
+        let after_data = exec_package_py_with_options(
+            pkg_source,
+            "/tmp/maya_plugin/package.py",
+            &paths,
+            &HashMap::new(),
+            None,
+            Some("studio_preproc.apply"),
+            &crate::config::PreprocessMode::After,
+        )
+        .unwrap();
+        assert_eq!(
+            after_data["order"],
+            serde_json::json!(["global:maya_plugin", "local:1.0.0"])
+        );
+
+        // 3. Override mode: local preprocess overrides global preprocess
+        let override_data = exec_package_py_with_options(
+            pkg_source,
+            "/tmp/maya_plugin/package.py",
+            &paths,
+            &HashMap::new(),
+            None,
+            Some("studio_preproc.apply"),
+            &crate::config::PreprocessMode::Override,
+        )
+        .unwrap();
+        assert_eq!(override_data["order"], serde_json::json!(["local:1.0.0"]));
+        assert!(!override_data.contains_key("global_root"));
+
+        // 4. InvalidPackageError raised in preprocessor maps to RezError::InvalidPackage
+        let err = exec_package_py_with_options(
+            "name = 'forbidden'\nversion = '1.0'\n",
+            "forbidden/package.py",
+            &paths,
+            &HashMap::new(),
+            None,
+            Some("studio_preproc.apply"),
+            &crate::config::PreprocessMode::Override,
+        )
+        .unwrap_err();
+        assert!(matches!(err, RezError::InvalidPackage(_)), "{err:?}");
+        assert!(err.to_string().contains("forbidden package name"), "{err}");
     }
 }

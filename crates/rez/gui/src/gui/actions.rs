@@ -263,10 +263,17 @@ fn run_solve(pkg_name: &str, _storage: &Storage, result: &mut SolveResult) {
     match ResolvedContext::resolve(vec![req], &provider, opts) {
         Ok(ctx) => {
             if ctx.status != crate::constants::ResolverStatus::Solved {
-                result.error = Some(
-                    ctx.failure_description
-                        .unwrap_or_else(|| "Resolution failed".to_string()),
-                );
+                let mut msg = ctx
+                    .failure_description
+                    .clone()
+                    .unwrap_or_else(|| "Resolution failed".to_string());
+                if let Ok(diag) = ctx.diagnose_conflicts(&provider) {
+                    if diag.has_findings() {
+                        msg.push_str("\n\n");
+                        msg.push_str(&diag.format_human());
+                    }
+                }
+                result.error = Some(msg);
                 result.show = true;
                 return;
             }

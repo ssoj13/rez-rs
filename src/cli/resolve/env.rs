@@ -155,6 +155,38 @@ pub struct EnvArgs {
           require_equals = true, default_value_t = true, default_missing_value = "true")]
     pub inherited: bool,
 
+    /// Run Conflict Diagnostics ("Why-Not" / Unsat Core Analyzer) and verified "What-If" suggestions
+    #[arg(long)]
+    pub why_not: bool,
+
+    /// Surgically strip hazardous host variables (PYTHONPATH, LD_LIBRARY_PATH, QT_PLUGIN_PATH, etc.) while keeping OS/display session vars
+    #[arg(long)]
+    pub clean_room: bool,
+
+    /// Inspect and print sanitized host environment leaks, active leaks, and package variables
+    #[arg(long)]
+    pub inspect_env: bool,
+
+    /// Materialize a virtual merged directory (bin/, lib/, python/, plugins/, etc.) across resolved packages
+    #[arg(long, value_name = "DIR")]
+    pub merge_dir: Option<PathBuf>,
+
+    /// Subdirectories to include when --merge-dir is used (comma-separated, e.g. "bin,python,plugins")
+    #[arg(long, value_delimiter = ',')]
+    pub merge_subdirs: Vec<String>,
+
+    /// Link strategy for --merge-dir ("auto", "symlink", "hardlink", or "copy")
+    #[arg(long, default_value = "auto", value_name = "MODE")]
+    pub merge_strategy: String,
+
+    /// Directory to write crash forensics bundles (.json + .rxt) when a child command crashes
+    #[arg(long, value_name = "DIR")]
+    pub crash_report_dir: Option<PathBuf>,
+
+    /// Always write a telemetry & forensics report bundle (.json + .rxt) after command execution
+    #[arg(long)]
+    pub supervise: bool,
+
     /// Increase verbosity (-v, -vv, etc.)
     #[arg(from_global)]
     pub verbose: u8,
@@ -298,6 +330,8 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         // context is now None, will be re-resolved below
     }
 
+    let mut active_provider: Option<Box<dyn PackageProvider>> = None;
+
     // Resolve if no context loaded
     if context.is_none() {
         log_info!("env", "Resolving packages: {:?}", request);
@@ -331,7 +365,7 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         // Build resolve options
         let opts = ResolveOptions {
             timestamp,
-            package_paths: pkg_paths,
+            package_paths: pkg_paths.clone(),
             building: args.build,
             caching: !args.no_cache,
             add_implicit: !args.no_implicit,
@@ -344,6 +378,7 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
 
         let provider = get_package_provider(&opts)?;
         context = Some(ResolvedContext::resolve(reqs, &*provider, opts)?);
+        active_provider = Some(provider);
     }
 
     let ctx = context.ok_or_else(|| {
@@ -351,17 +386,46 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
     })?;
     let success = ctx.status == ResolverStatus::Solved;
 
-    // Print info on failure
-    if !success {
-        ctx.print_info(args.verbose as u32);
+    // Print info on failure or when --why-not is requested
+    if !success || args.why_not {
+        if !success {
+            ctx.print_info(args.verbose as u32);
+        }
 
-        if args.fail_graph {
+        if args.why_not || !success {
+            let diag_provider = match active_provider {
+                Some(ref p) => p.as_ref(),
+                None => {
+                    let diag_opts = ResolveOptions {
+                        package_paths: Some(ctx.package_paths.clone()),
+                        ..Default::default()
+                    };
+                    active_provider = Some(get_package_provider(&diag_opts)?);
+                    active_provider
+                        .as_ref()
+                        .expect("provider initialized")
+                        .as_ref()
+                }
+            };
+            if let Ok(diag_report) = ctx.diagnose_conflicts(diag_provider) {
+                if args.why_not || diag_report.has_findings() {
+                    println!("\n{}", diag_report.format_human());
+                }
+            }
+        }
+
+        if !success && args.fail_graph {
             if let Some(graph) = ctx.graph_string.as_deref() {
                 let image_path = view_graph(graph)?;
                 eprintln!("Resolve graph image: {}", image_path.display());
             } else {
                 eprintln!("the failed resolve context did not generate a graph.");
             }
+        }
+
+        if args.why_not && success {
+            println!("Context resolved cleanly with no package conflicts.");
+            return Ok(std::process::ExitCode::SUCCESS);
         }
     }
 
@@ -386,7 +450,38 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
         return Err(RezError::Resolve("resolve failed".into()));
     }
 
-    // -- Execute shell --
+    // -- Virtual Merged Directory materialization (--merge-dir) --
+    if let Some(ref merge_dir) = args.merge_dir {
+        let strategy = resolve::cleanroom::LinkStrategy::from_name(&args.merge_strategy)
+            .ok_or_else(|| {
+                RezError::Config(format!(
+                    "Invalid --merge-strategy '{}': expected auto, symlink, hardlink, or copy",
+                    args.merge_strategy
+                ))
+            })?;
+        let manifest =
+            ctx.materialize_merged_directory(merge_dir, &args.merge_subdirs, strategy)?;
+        if !args.quiet {
+            println!(
+                "Materialized virtual merged directory at {} ({} files across {} packages, {} overrides).",
+                merge_dir.display(),
+                manifest.total_files,
+                manifest.packages.len(),
+                manifest.conflicts_overridden
+            );
+        }
+    }
+
+    // -- Environment Isolation & Leak Inspection (--inspect-env) --
+    if args.inspect_env {
+        let report = ctx.inspect_environment(None, args.clean_room)?;
+        println!("{}", report.format_human());
+        if command.is_none() && args.extra.is_empty() {
+            return Ok(std::process::ExitCode::SUCCESS);
+        }
+    }
+
+    // -- Execute shell (with process supervision & crash forensics) --
     log_info!("env", "Executing shell: {:?}", shell_type);
     let quiet = args.quiet || command.is_some();
     let inherited = args.inherited;
@@ -395,13 +490,24 @@ pub fn run(args: &EnvArgs) -> Result<std::process::ExitCode> {
     } else {
         None
     };
-    let status = ctx.execute_shell(
+    let (status, forensics_report, bundle_paths) = ctx.execute_shell_supervised(
         Some(shell_type),
         command.as_deref(),
         parent_environ,
         quiet,
         inherited,
+        args.clean_room,
+        args.crash_report_dir.as_deref(),
+        args.supervise,
     )?;
+
+    if forensics_report.exit.is_crash_or_loader_failure() || args.supervise {
+        let (jp, rp) = match bundle_paths {
+            Some((ref j, ref r)) => (Some(j.as_path()), Some(r.as_path())),
+            None => (None, None),
+        };
+        eprintln!("{}", forensics_report.format_human_summary(jp, rp));
+    }
 
     Ok(rustpython_host_env::os::exit_code(
         status.code().unwrap_or(1) as u32,

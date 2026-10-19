@@ -2108,6 +2108,182 @@ impl ResolvedContext {
     }
 
     // =========================================================================
+    // Studio Launcher Extensions: Diagnostics, Clean-Room, Merged Dir & Supervision
+    // =========================================================================
+
+    /// Run structured conflict diagnostics and verified "What-If" analysis for this context.
+    pub fn diagnose_conflicts(
+        &self,
+        provider: &dyn PackageProvider,
+    ) -> Result<crate::diagnostics::ConflictDiagnosticReport> {
+        crate::diagnostics::ConflictDiagnosticReport::analyze(
+            &self.package_requests,
+            &self.implicit_packages,
+            provider,
+            self.building,
+            self.failure_description.clone(),
+        )
+    }
+
+    /// Inspect how this resolved context interacts with `host_environ`, reporting
+    /// sanitized hazard leaks, active unsanitized leaks, and package-defined variables.
+    pub fn inspect_environment(
+        &self,
+        host_environ: Option<&HashMap<String, String>>,
+        clean_room: bool,
+    ) -> Result<crate::cleanroom::EnvInspectionReport> {
+        self.require_success()?;
+        let owned_host;
+        let host = match host_environ {
+            Some(h) => h,
+            None => {
+                owned_host = std::env::vars().collect::<HashMap<_, _>>();
+                &owned_host
+            }
+        };
+
+        let platform = crate::platform::Platform::current();
+        let (baseline_parent, sanitized_leaks) = if clean_room {
+            crate::cleanroom::sanitize_host_environ(platform, host, &CONFIG.parent_variables)
+        } else if CONFIG.clean_shell_environment {
+            let cleaned =
+                crate::environment::clean_environ(platform, host, &CONFIG.parent_variables);
+            let (_, stripped) =
+                crate::cleanroom::sanitize_host_environ(platform, host, &CONFIG.parent_variables);
+            (cleaned, stripped)
+        } else {
+            (host.clone(), Vec::new())
+        };
+
+        let active_leaks = crate::cleanroom::detect_unsanitized_leaks(host, &baseline_parent);
+        let resolved_overrides = self.get_environ(None)?;
+        let mut package_defined_vars = std::collections::BTreeMap::new();
+        for (k, v) in resolved_overrides {
+            if !k.starts_with("REZ_") {
+                package_defined_vars.insert(k, v);
+            }
+        }
+
+        Ok(crate::cleanroom::EnvInspectionReport {
+            clean_room_enabled: clean_room || CONFIG.clean_shell_environment,
+            sanitized_leaks,
+            active_leaks,
+            package_defined_vars,
+            inherited_os_vars_count: baseline_parent.len(),
+        })
+    }
+
+    /// Materialize a virtual merged directory (`bin/`, `lib/`, `python/`, `plugins/`, etc.)
+    /// across all resolved packages in this context.
+    pub fn materialize_merged_directory(
+        &self,
+        dest_dir: &Path,
+        subdirs: &[String],
+        strategy: crate::cleanroom::LinkStrategy,
+    ) -> Result<crate::cleanroom::MergedDirManifest> {
+        self.require_success()?;
+        let packages = self.execution_packages(None)?;
+        crate::cleanroom::materialize_merged_directory(&packages, dest_dir, subdirs, strategy)
+    }
+
+    /// Execute a shell or command with native process supervision, exit/signal/NTSTATUS
+    /// classification, optional Clean-Room environment isolation, and automatic crash
+    /// forensics bundle generation.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub fn execute_shell_supervised(
+        &self,
+        shell: Option<ShellType>,
+        command: Option<&str>,
+        parent_environ: Option<HashMap<String, String>>,
+        quiet: bool,
+        inherited: bool,
+        clean_room: bool,
+        crash_report_dir: Option<&Path>,
+        always_write_report: bool,
+    ) -> Result<(
+        ExitStatus,
+        crate::supervisor::CrashForensicsReport,
+        Option<(PathBuf, PathBuf)>,
+    )> {
+        self.require_success()?;
+        let host_env = std::env::vars().collect::<HashMap<_, _>>();
+        let platform = crate::platform::Platform::current();
+
+        let (effective_parent, sanitized_leaks, active_leaks) = match parent_environ {
+            Some(explicit) => {
+                let active = crate::cleanroom::detect_unsanitized_leaks(&host_env, &explicit)
+                    .into_iter()
+                    .map(|l| l.name)
+                    .collect();
+                (Some(explicit), Vec::new(), active)
+            }
+            None if clean_room => {
+                let (clean_map, stripped) = crate::cleanroom::sanitize_host_environ(
+                    platform,
+                    &host_env,
+                    &CONFIG.parent_variables,
+                );
+                let stripped_names = stripped.into_iter().map(|l| l.name).collect();
+                (Some(clean_map), stripped_names, Vec::new())
+            }
+            None => {
+                let active = crate::cleanroom::detect_unsanitized_leaks(&host_env, &host_env)
+                    .into_iter()
+                    .map(|l| l.name)
+                    .collect();
+                (None, Vec::new(), active)
+            }
+        };
+
+        let resolved_env = self
+            .get_environ(effective_parent.clone())
+            .unwrap_or_default();
+        let shell_type = shell.unwrap_or_else(crate::shell::types::detect_shell);
+
+        let started_ms = crate::supervisor::now_epoch_ms();
+        let status = self.execute_shell(
+            Some(shell_type),
+            command,
+            effective_parent,
+            quiet,
+            inherited,
+        )?;
+        let finished_ms = crate::supervisor::now_epoch_ms();
+
+        let classification = crate::supervisor::classify_exit_status(&status);
+        let mut report = crate::supervisor::CrashForensicsReport::build(
+            self,
+            shell_type.name(),
+            command,
+            started_ms,
+            finished_ms,
+            classification,
+            &resolved_env,
+            sanitized_leaks,
+            active_leaks,
+            None,
+            None,
+        );
+
+        let should_write = report.exit.is_crash_or_loader_failure() || always_write_report;
+        let written_paths = if should_write {
+            let target_dir = crash_report_dir
+                .map(Path::to_path_buf)
+                .or_else(|| {
+                    std::env::var_os("REZ_CRASH_REPORT_DIR")
+                        .filter(|v| !v.is_empty())
+                        .map(PathBuf::from)
+                })
+                .unwrap_or_else(|| std::env::temp_dir().join("rez-crash-reports"));
+            Some(report.write_bundle(self, &target_dir)?)
+        } else {
+            None
+        };
+
+        Ok((status, report, written_paths))
+    }
+
+    // =========================================================================
     // Internal: rex execution
     // =========================================================================
 
@@ -7023,5 +7199,91 @@ env.REZ_TEST_PATH.append(literal("second"))
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_context_studio_launcher_extensions_end_to_end() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo_root = tmp.path().join("repo");
+        let pkg_dir = repo_root.join("studio_dcc").join("1.0.0");
+        std::fs::create_dir_all(pkg_dir.join("plugins")).unwrap();
+        std::fs::write(
+            pkg_dir.join("package.py"),
+            "name = 'studio_dcc'\nversion = '1.0.0'\ndef commands():\n    env.STUDIO_DCC_ROOT.set('{root}')\n",
+        )
+        .unwrap();
+        std::fs::write(pkg_dir.join("plugins/node.so"), b"binary").unwrap();
+
+        let provider =
+            FilesystemPackageProvider::from_paths(std::slice::from_ref(&repo_root)).unwrap();
+        let opts = ResolveOptions {
+            package_paths: Some(vec![repo_root.clone()]),
+            add_implicit: false,
+            ..Default::default()
+        };
+        let ctx = ResolvedContext::resolve(
+            vec![Requirement::new("studio_dcc-1.0.0").unwrap()],
+            &provider,
+            opts,
+        )
+        .unwrap();
+        assert_eq!(ctx.status, ResolverStatus::Solved);
+
+        // 1. Inspect environment with simulated host leaks
+        let mut fake_host = HashMap::new();
+        fake_host.insert(
+            "PYTHONPATH".to_string(),
+            "/leaked/site-packages".to_string(),
+        );
+        fake_host.insert("HOUDINI_PATH".to_string(), "/leaked/houdini".to_string());
+        fake_host.insert("DISPLAY".to_string(), ":0".to_string());
+
+        let env_report = ctx.inspect_environment(Some(&fake_host), true).unwrap();
+        assert!(env_report.clean_room_enabled);
+        assert_eq!(env_report.sanitized_leaks.len(), 2);
+        assert!(env_report.active_leaks.is_empty());
+        assert!(env_report
+            .package_defined_vars
+            .contains_key("STUDIO_DCC_ROOT"));
+
+        // 2. Materialize virtual merged directory
+        let merged_dir = tmp.path().join("merged");
+        let manifest = ctx
+            .materialize_merged_directory(
+                &merged_dir,
+                &["plugins".to_string()],
+                crate::cleanroom::LinkStrategy::Auto,
+            )
+            .unwrap();
+        assert_eq!(manifest.total_files, 1);
+        assert!(merged_dir.join("plugins/node.so").is_file());
+
+        // 3. Write crash forensics bundle (.json + .rxt)
+        let crash_dir = tmp.path().join("crash_bundles");
+        let exit_class = crate::supervisor::classify_exit_code(
+            Some(0xC000_0005u32 as i32),
+            None,
+            crate::platform::Platform::Windows,
+        );
+        let mut crash_report = crate::supervisor::CrashForensicsReport::build(
+            &ctx,
+            "cmd",
+            Some("studio_dcc.exe"),
+            1000,
+            1250,
+            exit_class,
+            &HashMap::new(),
+            vec!["PYTHONPATH".to_string()],
+            Vec::new(),
+            None,
+            Some("Fatal access violation".to_string()),
+        );
+        let (json_path, rxt_path) = crash_report.write_bundle(&ctx, &crash_dir).unwrap();
+        assert!(json_path.is_file());
+        assert!(rxt_path.is_file());
+
+        // Verify the saved .rxt snapshot reloads cleanly
+        let reloaded = ResolvedContext::load(&rxt_path, None).unwrap();
+        assert_eq!(reloaded.status, ResolverStatus::Solved);
     }
 }
