@@ -33,13 +33,16 @@ The executable is `target/release/rez` on Linux/macOS or `target/release/rez.exe
 python bootstrap.py b
 ```
 
-Build and runtime receipts currently cover Windows. Native Linux/macOS and GUI acceptance have separate open items in [Plan30](docs/plans/plan30.md).
+Build and runtime receipts cover Windows, Linux x86_64, and macOS arm64 in CI. GUI runtime and broader native platform consumers have separate open items in [Plan30](docs/plans/plan30.md).
 
-## Download the Windows executable
+## Download release archives
 
-The [CI and release workflow](.github/workflows/ci.yml) checks formatting, Python helpers, documentation, release workspace tests, and strict Clippy. It stages the default-feature Windows x86_64 executable and CPython module through `bootstrap.py p`, then verifies the binaries, source archive, and extracted Python distribution before upload.
+The [CI and release workflow](.github/workflows/ci.yml) runs `python bootstrap.py ci` ([`ci.py`](ci.py)) on Windows x86_64, Linux x86_64, and macOS arm64. It checks formatting, strict release Clippy, release workspace tests, the Python helper suite, and the book build, then stages, bundles, and verifies two archives per platform in `dist/release/`:
 
-Successful trusted runs provide a `windows-x86_64` artifact containing `rez.exe`, its SHA-256 checksum, and a verification receipt. The separate `windows-python` artifact contains `rez-rs-python.zip` with `rez/rs.pyd` and compatibility wrappers; the same archive is tested on CPython 3.13 and 3.10. Pushing a `v<version>` tag matching `Cargo.toml` publishes those assets as a GitHub release; tags containing a prerelease suffix create a prerelease. Fork pull requests run source checks only while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
+- `rez-rs-v<version>-<platform>.zip`: `install.py`, its support modules, and `rez_rs/<version>/` (`package.py`, the CLI executable, and `rez-rs.zip` sources).
+- `rez-rs-python-v<version>-<platform>.zip`: the abi3 `rez` package with `rez.rs` (`rs.pyd` on Windows, `rs.abi3.so` on Linux/macOS) and compatibility wrappers, tested after extraction on CPython 3.13 and 3.10.
+
+Pushing a `v<version>` tag matching `Cargo.toml` publishes all six ZIPs as a GitHub release (see [`v0.1.0`](https://github.com/ssoj13/rez-rs/releases/tag/v0.1.0)); tags containing a prerelease suffix create a prerelease. Fork pull requests skip the build while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
 
 The executable carries its interpreter, standard library, configuration template, and standard binders. No companion Python source files are needed for `rez --write-config` or `rez bind --quickstart`. Quickstart binds software already installed on the host; Python, pip, and setuptools can be skipped when unavailable. A bound CPython environment still depends on its installed base Python.
 

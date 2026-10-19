@@ -24,7 +24,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -180,7 +179,15 @@ def install_package(package_dir: Path, repository_root: Path) -> Path:
             f"Refusing to replace a different existing package version: {destination}"
         )
 
-    temporary_dir = Path(tempfile.mkdtemp(prefix=f".{package_dir.name}.staging-", dir=family_dir))
+    for _ in range(100):
+        temporary_dir = family_dir / f".{package_dir.name}.staging-{os.urandom(8).hex()}"
+        try:
+            temporary_dir.mkdir()
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise InstallError(f"Could not create staging directory in {family_dir}")
     try:
         for name in sorted(EXPECTED_FILES):
             shutil.copy2(package_dir / name, temporary_dir / name)

@@ -1,6 +1,6 @@
 # Introduction
 
-**rez-rs** is a Rust implementation of the [rez](https://github.com/AcademySoftwareFoundation/rez) package manager, originally written in Python by Allan Johns. It targets the same package and environment management use cases and aims to interoperate with existing Rez data. The reference is the vendored Rez source snapshot at gitlink `78e26236cdd65bc549db6b4e5782c70fe86ed5db` (`3.3.0-12-g78e26236`); its working tree contains local changes. rez-rs is not yet a complete drop-in replacement.
+**rez-rs** is a Rust implementation of the [rez](https://github.com/AcademySoftwareFoundation/rez) package manager, originally written in Python by Allan Johns. It targets the same package and environment management use cases and aims to interoperate with existing Rez data, with additional native build adapters, environment configuration, and deployment extensions. Upstream Rez (`3.3.0-12-g78e26236`, commit `78e26236cdd65bc549db6b4e5782c70fe86ed5db`) is used as an external behavioral reference; no Python Rez checkout is bundled. rez-rs is not yet a complete drop-in replacement.
 
 ## What rez-rs Does
 
@@ -22,11 +22,11 @@ The result is a reproducible, isolated software environment where every tool, li
 | Embedded VM | RustPython 0.6.0 for `package.py` and `rezconfig.py` execution |
 | CLI commands | Resolve, query, development, repository, and administration groups; behavior is still being checked for Rez parity |
 | Verification | Historical test/runtime receipts are archived; [the current work plan](https://github.com/ssoj13/rez-rs/blob/main/docs/plans/plan30.md) records accepted scope and remaining work |
-| Platform acceptance | Recorded Windows checks; native Linux/macOS acceptance remains incomplete |
+| Platform acceptance | Windows x86_64, Linux x86_64, and macOS arm64 CI and release gates pass; broader native/GUI consumers remain in Plan30 |
 | Shell renderers | 8 shells: bash, sh, csh, tcsh, zsh, cmd, powershell, git-bash |
 | Build adapters | CMake, Make, Python, Pip, Cargo, Go, Zig, Node.js, Bun, SCons, vcpkg, Conan, extraction, custom, no-op |
 | Package formats | `package.py`, `package.yaml`, `package.yml`, `package.toml` |
-| Rez compatibility baseline | Vendored Rez source snapshot `3.3.0-12-g78e26236` (gitlink `78e26236cdd65bc549db6b4e5782c70fe86ed5db`); worktree has local changes |
+| Rez compatibility baseline | External upstream Rez reference `3.3.0-12-g78e26236` (`78e26236cdd65bc549db6b4e5782c70fe86ed5db`) plus intentional rez-rs extensions |
 
 ## Why a Rust Port?
 

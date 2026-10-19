@@ -31,17 +31,17 @@ The install command installs metadata-derived native aliases beside Cargo's CLI.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import zipfile
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -241,6 +241,25 @@ def write_source_archive(destination: Path) -> None:
                 archive.write(source, Path("rez-rs") / source.relative_to(ROOT_DIR))
 
 
+@contextlib.contextmanager
+def staging_directory(parent: Path, prefix: str) -> Iterator[Path]:
+    """Create a temporary staging directory that inherits parent permissions."""
+    parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(100):
+        candidate = parent / f"{prefix}{os.urandom(8).hex()}"
+        try:
+            candidate.mkdir()
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise FileExistsError(f"Could not create unique staging directory in {parent}")
+    try:
+        yield candidate
+    finally:
+        shutil.rmtree(candidate, ignore_errors=True)
+
+
 def stage_python_api(version: str) -> int:
     """Build an abi3 extension and atomically stage the separate Python distribution."""
     import sysconfig
@@ -261,9 +280,8 @@ def stage_python_api(version: str) -> int:
         return 1
     family = DIST_DIR / "python"
     destination = family / version
-    family.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=f".{version}-", dir=family) as temporary:
-        staging = Path(temporary) / version
+    with staging_directory(family, f".{version}-") as temporary:
+        staging = temporary / version
         package = staging / "rez"
         package.mkdir(parents=True)
         for source in sorted((ROOT_DIR / "crates" / "rez" / "python-api" / "python" / "rez").glob("*.py")):
@@ -289,7 +307,7 @@ def stage_python_api(version: str) -> int:
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for source in members:
                 archive.write(source, source.relative_to(staging))
-        previous = Path(temporary) / "previous"
+        previous = temporary / "previous"
         if destination.exists():
             os.replace(destination, previous)
         try:
@@ -329,37 +347,33 @@ def run_package(args: argparse.Namespace) -> int:
         return code
 
     try:
-        DIST_DIR.mkdir(parents=True, exist_ok=True)
         # Installer support is generated from the canonical module, outside payload.
-        with tempfile.TemporaryDirectory(prefix=".installer-", dir=DIST_DIR) as support_tmp:
+        with staging_directory(DIST_DIR, ".installer-") as support_tmp:
             for support_source in (
                 ROOT_DIR / "cli_install.py", ROOT_DIR / "system_bind.py",
                 ROOT_DIR / "packaging" / "install.py",
             ):
-                support_staged = Path(support_tmp) / support_source.name
+                support_staged = support_tmp / support_source.name
                 shutil.copy2(support_source, support_staged)
                 if hashlib.sha256(support_staged.read_bytes()).digest() != hashlib.sha256(support_source.read_bytes()).digest():
                     raise OSError("Installer support changed during staging")
                 os.replace(support_staged, DIST_DIR / support_source.name)
-        PACKAGE_FAMILY_DIR.mkdir(parents=True, exist_ok=True)
-        staging_root = Path(
-            tempfile.mkdtemp(prefix=f".{version}-", dir=PACKAGE_FAMILY_DIR)
-        )
     except OSError as error:
         print(f"Could not create package staging directory: {error}", file=sys.stderr)
         return 1
 
-    staged_package = staging_root / version
-    previous_package = staging_root / "previous"
     binary_name = RELEASE_REZ.name
     tool_name = RELEASE_REZ.stem
 
     try:
-        staged_package.mkdir()
-        shutil.copy2(RELEASE_REZ, staged_package / binary_name)
-        write_source_archive(staged_package / "rez-rs.zip")
-        (staged_package / "package.py").write_text(
-            f'''name = {REZ_PACKAGE_NAME!r}
+        with staging_directory(PACKAGE_FAMILY_DIR, f".{version}-") as staging_root:
+            staged_package = staging_root / version
+            previous_package = staging_root / "previous"
+            staged_package.mkdir()
+            shutil.copy2(RELEASE_REZ, staged_package / binary_name)
+            write_source_archive(staged_package / "rez-rs.zip")
+            (staged_package / "package.py").write_text(
+                f'''name = {REZ_PACKAGE_NAME!r}
 version = {version!r}
 description = "Rust implementation of the Rez package manager."
 package_type = "tool"
@@ -371,25 +385,23 @@ tests = {{"version": {{"command": "{tool_name} --version"}}}}
 def commands():
     env.PATH.prepend("{{this.root}}")
 ''',
-            encoding="utf-8",
-        )
+                encoding="utf-8",
+            )
 
-        if package_dir.exists():
-            os.replace(package_dir, previous_package)
-        try:
-            os.replace(staged_package, package_dir)
-        except OSError:
+            if package_dir.exists():
+                os.replace(package_dir, previous_package)
+            try:
+                os.replace(staged_package, package_dir)
+            except OSError:
+                if previous_package.exists():
+                    os.replace(previous_package, package_dir)
+                raise
+
             if previous_package.exists():
-                os.replace(previous_package, package_dir)
-            raise
-
-        if previous_package.exists():
-            shutil.rmtree(previous_package)
+                shutil.rmtree(previous_package)
     except (OSError, zipfile.BadZipFile) as error:
         print(f"Could not stage Rez package at {package_dir}: {error}", file=sys.stderr)
         return 1
-    finally:
-        shutil.rmtree(staging_root, ignore_errors=True)
 
     print(f"Rez package staged at {package_dir}")
     return 0

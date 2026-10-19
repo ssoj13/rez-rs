@@ -32,7 +32,7 @@ dist/python/<version>/
   rez-rs-python.zip
 ```
 
-On Unix the extension filename is `rs.abi3.so`. Windows x86_64 is the initial acceptance platform; native Unix runtime acceptance remains open. The extension uses the CPython stable ABI with a 3.10 minimum. Free-threaded Python builds are outside this distribution's supported scope.
+On Unix the extension filename is `rs.abi3.so`. The extension uses the CPython stable ABI with a 3.10 minimum and is verified in CI on Windows x86_64, Linux x86_64, and macOS arm64 against CPython 3.13 and 3.10. Free-threaded Python builds are outside this distribution's supported scope.
 
 Add the directory containing `rez/` to Python's module search path. On Windows:
 

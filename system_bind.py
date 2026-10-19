@@ -214,7 +214,15 @@ def refresh_system_bindings(
                 backups = repository / ".rez-rs-backups" / "system-bind"
                 _safe(backups, repository)
                 backups.mkdir(parents=True, exist_ok=True)
-                backup = Path(tempfile.mkdtemp(prefix="transaction-", dir=backups))
+                for _ in range(100):
+                    backup = backups / f"transaction-{os.urandom(8).hex()}"
+                    try:
+                        backup.mkdir()
+                        break
+                    except FileExistsError:
+                        continue
+                else:
+                    raise BindError(f"Could not create backup directory in {backups}")
                 for target, previous, incoming, record in updates:
                     relative = target.relative_to(repository)
                     if previous is not None:

@@ -15,7 +15,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Mapping
 
@@ -26,6 +25,17 @@ OLD_HOST_FILES = frozenset({"rez.exe", "rez-rs.zip"})
 
 class InstallError(RuntimeError):
     """An unsafe target, inconsistent provenance, or incomplete transaction."""
+
+
+def _staging_dir(parent: Path, prefix: str) -> Path:
+    for _ in range(100):
+        candidate = parent / f"{prefix}{os.urandom(8).hex()}"
+        try:
+            candidate.mkdir()
+            return candidate
+        except FileExistsError:
+            continue
+    raise InstallError(f"Could not create staging directory in {parent}")
 
 
 def _safe_name(name: object) -> bool:
@@ -278,7 +288,7 @@ def install_cli(
                 if file_hashes(backup, previous) != previous:
                     raise InstallError("Conflicting activation backup hashes")
             else:
-                temporary_backup = Path(tempfile.mkdtemp(prefix=".staging-", dir=backups))
+                temporary_backup = _staging_dir(backups, ".staging-")
                 try:
                     for name in previous:
                         shutil.copy2(directory / name, temporary_backup / name)
@@ -288,7 +298,7 @@ def install_cli(
                 finally:
                     if temporary_backup.exists():
                         shutil.rmtree(temporary_backup)
-            pending = Path(tempfile.mkdtemp(prefix=".rez-rs-activation.staging-", dir=directory))
+            pending = _staging_dir(directory, ".rez-rs-activation.staging-")
             try:
                 record = {"schema": 2, "previous": previous, "incoming": incoming}
                 with (pending / "journal.json").open("w", encoding="utf-8") as journal:

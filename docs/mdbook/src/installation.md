@@ -2,15 +2,15 @@
 
 rez-rs is a development preview. Validate the [compatibility requirements](https://github.com/ssoj13/rez-rs/blob/main/docs/plans/plan30.md) of your packages before replacing an existing Rez installation.
 
-## Download the Windows executable
+## Download a release archive
 
-Download the `windows-x86_64` artifact from a successful [Actions run](https://github.com/ssoj13/rez-rs/actions), or `rez.exe` from a [tagged release](https://github.com/ssoj13/rez-rs/releases). Both include a SHA-256 checksum and a verification receipt. CI currently builds Windows x86_64 with the default GUI feature.
+Download the platform artifact (`windows-x86_64`, `linux-x86_64`, or `macos-aarch64`) from a successful [Actions run](https://github.com/ssoj13/rez-rs/actions), or the matching `rez-rs-v<version>-<platform>.zip` from a [tagged release](https://github.com/ssoj13/rez-rs/releases). Each CLI archive contains `install.py`, its support modules, and `rez_rs/<version>/` (`package.py`, the CLI executable, and `rez-rs.zip`). CI builds all three platforms with the default GUI feature and verifies each archive after extraction.
 
-Place `rez.exe` in a directory on PATH. Its Python interpreter, standard library, default configuration template, and standard binders are embedded; no source checkout or companion Python files are needed. Generate the commented user configuration with `rez --write-config`.
+Place `rez` (`rez.exe` on Windows) in a directory on PATH, or install the bundle with `python install.py --repository-root <repo>`. Its Python interpreter, standard library, default configuration template, and standard binders are embedded; no source checkout or companion Python files are needed. Generate the commented user configuration with `rez --write-config`.
 
 `rez bind --quickstart` creates definitions for detected software. Platform, architecture, OS, and rez bindings work without a host Python. Binding Python creates a virtual environment using installed CPython; that environment still needs its base Python installation. Missing optional software is skipped. The embedded RustPython interpreter does not install CPython, pip, or setuptools on the host.
 
-The separate `windows-python` artifact and tagged releases also provide `rez-rs-python.zip`, containing `rez/rs.pyd` and initial Rez-compatible wrappers. Extract it before importing and use an isolated CPython environment. See [Python API installation and limits](python-api.md).
+Tagged releases and CI artifacts also provide `rez-rs-python-v<version>-<platform>.zip`, containing `rez/rs.pyd` (or `rez/rs.abi3.so` on Linux/macOS) and initial Rez-compatible wrappers. Extract it before importing and use an isolated CPython environment. See [Python API installation and limits](python-api.md).
 
 ## Build from source
 

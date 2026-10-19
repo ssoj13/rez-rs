@@ -1,6 +1,6 @@
 # Plan 30 — Current Compatibility Work
 
-Updated: 2026-10-08. This is the only retained work plan. Previous plans and audit reports were removed from the new repository; prior Git history is retained separately in `old.rez-rs`. Upstream Rez is an external behavioral reference, not a bundled checkout.
+Updated: 2026-10-18. This is the only retained work plan. Previous plans and audit reports were removed from the new repository; prior Git history is retained separately in `old.rez-rs`. Upstream Rez is an external behavioral reference, not a bundled checkout.
 
 ## Current status
 
@@ -8,7 +8,7 @@ The workspace contains ten functional crates under `crates/rez/`; the root packa
 
 RustPython is pinned to 0.6.0. Stdlib and SRE use crates.io; four active local patches remain. The registry replacement passed a fresh default-feature Windows release build and 27 scoped Rust tests across six Python/SRE/TLS targets, plus 23 Python helper tests. The earlier migration campaign recorded 1,496 unique executed Rust tests, strict workspace Clippy, and 14 passing doc-tests; those historical gates were not repeated for the registry replacement. See [runtime ownership and scoped evidence](../mdbook/src/rustpython-vendoring.md).
 
-The book lives in `docs/mdbook`; generated HTML is excluded from source packages. Current source and installer changes require updated source-closure verification. These scopes do not establish full Rez parity, GUI runtime, Linux/macOS acceptance, or current host activation.
+The book lives in `docs/mdbook`; generated HTML is excluded from source packages. Current source and installer changes require updated source-closure verification. These scopes do not establish full Rez parity, GUI runtime, or current host activation.
 
 ## GitHub CI and release work
 
@@ -22,6 +22,9 @@ CI mirrors blender-mcp-rs: one Windows/Linux/macOS matrix job runs `python boots
 - [x] Set `DEPENDENCIES_TOKEN` and delete the four `DEPENDENCY_*_SSH_KEY` secrets.
 - [x] Accept a green hosted run on all three platforms: run `37855892531` (commit `e1025e0`), branch `ci/matrix`.
 - [x] Merge `ci/matrix` into `main` (PR #1, merge commit `5ea12c1`).
+- [x] Serialize `tests/cli_aliases.rs` and `tests/python_portability.rs` with a file-level mutex so forked child processes on Linux do not inherit open write handles to freshly copied executables and fail with `ETXTBSY` (`d6f1aad`).
+- [x] Accept `main` CI run `37874631706` and tag `v0.1.0` release run `37881753473` at `d6f1aad`: all three platforms (`windows-x86_64`, `linux-x86_64`, `macos-aarch64`) passed and published the six verified `v0.1.0` release ZIPs.
+- [x] Preserve inherited parent directory permissions when staging `dist/` and repository packages (`bootstrap.py`, `packaging/install.py`, `cli_install.py`, `system_bind.py`) instead of `tempfile.mkdtemp()`'s `0o700` protected Windows DACL / Unix mode.
 
 ## Windows path authority
 
@@ -43,7 +46,7 @@ set `$OutputEncoding`, `[Console]::InputEncoding` and `[Console]::OutputEncoding
 to UTF-8 without a BOM; the native-baseline regression covers all four
 input/output BOM combinations. Production rendering is unchanged.
 
-- [ ] Accept `tests/powershell_argv.rs` on Windows PowerShell 5.1 and PowerShell 7 locally and in hosted CI.
+- [x] Accept `tests/powershell_argv.rs` on Windows PowerShell 5.1 and PowerShell 7 locally and in hosted CI (runs `37855892531`, `37874631706`, `37881753473`).
 
 ## Shared environment contract
 

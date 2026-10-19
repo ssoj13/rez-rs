@@ -33,7 +33,11 @@ class PythonApiStagingTests(unittest.TestCase):
                 bootstrap, "DIST_DIR", root / "dist"
             ), patch.object(bootstrap, "run", return_value=0):
                 self.assertEqual(bootstrap.stage_python_api("1.0"), 0)
-            with zipfile.ZipFile(root / "dist/python/1.0/rez-rs-python.zip") as archive:
+            staged_dir = root / "dist/python/1.0"
+            if bootstrap.os.name == "nt":
+                icacls = bootstrap.subprocess.check_output(["icacls", str(staged_dir)], text=True)
+                self.assertIn("(I)", icacls)
+            with zipfile.ZipFile(staged_dir / "rez-rs-python.zip") as archive:
                 self.assertFalse(any("__pycache__" in name for name in archive.namelist()))
                 extension = "rez/rs.pyd" if bootstrap.os.name == "nt" else "rez/rs.abi3.so"
                 self.assertEqual(archive.read(extension), library.read_bytes())
