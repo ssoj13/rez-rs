@@ -1985,8 +1985,10 @@ impl ResolvedContext {
     // Printing / Display
     // =========================================================================
 
-    /// Print a summary of the resolved context.
-    pub fn print_info(&self, verbosity: u32) {
+    /// Format a summary of the resolved context as a string.
+    pub fn format_info(&self, verbosity: u32) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
         let status_str =
             if self.status == ResolverStatus::Failed || self.status == ResolverStatus::Aborted {
                 "resolve failed,"
@@ -1994,43 +1996,44 @@ impl ResolvedContext {
                 "resolved"
             };
 
-        println!(
+        let _ = writeln!(
+            out,
             "{} by {}@{}, using rez-rs v{}",
             status_str, self.user, self.host, self.rez_version
         );
 
         if let Some(ts) = self.requested_timestamp.filter(|ts| *ts != 0) {
-            println!("packages released after timestamp {} were ignored", ts);
+            let _ = writeln!(out, "packages released after timestamp {} were ignored", ts);
         }
-        println!();
+        out.push('\n');
 
         if verbosity > 0 {
-            println!("search paths:");
+            let _ = writeln!(out, "search paths:");
             for path in &self.package_paths {
-                println!("  {}", path.display());
+                let _ = writeln!(out, "  {}", path.display());
             }
-            println!();
+            out.push('\n');
         }
 
         // Requested packages
-        println!("requested packages:");
+        let _ = writeln!(out, "requested packages:");
         for req in &self.package_requests {
-            println!("  {req}");
+            let _ = writeln!(out, "  {req}");
         }
         for req in &self.implicit_packages {
-            println!("  {req}  (implicit)");
+            let _ = writeln!(out, "  {req}  (implicit)");
         }
-        println!();
+        out.push('\n');
 
         // Resolved or failed
         if self.status == ResolverStatus::Failed || self.status == ResolverStatus::Aborted {
             if let Some(ref desc) = self.failure_description {
-                println!("The context failed to resolve:\n{desc}");
+                let _ = writeln!(out, "The context failed to resolve:\n{desc}");
             }
-            return;
+            return out;
         }
 
-        println!("resolved packages:");
+        let _ = writeln!(out, "resolved packages:");
         if let Some(ref pkgs) = self.resolved_packages {
             let mut sorted: Vec<_> = pkgs.iter().collect();
             sorted.sort_by(|a, b| a.name.cmp(&b.name));
@@ -2040,27 +2043,34 @@ impl ResolvedContext {
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_default();
-                println!("  {}  {}", pkg.qualified_name(), loc);
+                let _ = writeln!(out, "  {}  {}", pkg.qualified_name(), loc);
             }
         }
 
         if let Some(ref ephs) = self.resolved_ephemerals {
             for eph in ephs {
-                println!("  {eph}  (ephemeral)");
+                let _ = writeln!(out, "  {eph}  (ephemeral)");
             }
         }
 
         if verbosity > 0 {
-            println!();
+            out.push('\n');
             let actual = self.solve_time - self.load_time;
-            println!("resolve details:");
-            println!("  load time:    {:.2} secs", self.load_time);
-            println!("  solve time:   {:.2} secs", actual);
-            println!("  from cache:   {}", self.from_cache);
+            let _ = writeln!(out, "resolve details:");
+            let _ = writeln!(out, "  load time:    {:.2} secs", self.load_time);
+            let _ = writeln!(out, "  solve time:   {:.2} secs", actual);
+            let _ = writeln!(out, "  from cache:   {}", self.from_cache);
             if let Some(ref lp) = self.load_path {
-                println!("  rxt file:     {}", lp.display());
+                let _ = writeln!(out, "  rxt file:     {}", lp.display());
             }
         }
+
+        out
+    }
+
+    /// Print a summary of the resolved context.
+    pub fn print_info(&self, verbosity: u32) {
+        print!("{}", self.format_info(verbosity));
     }
 
     // =========================================================================

@@ -198,7 +198,7 @@ def commands():
         diagnostics = rs.context_diagnose_conflicts(json.dumps(context.to_dict()), self.paths)
         self.assertEqual(diagnostics["status"], "failed")
         self.assertIn("dependency", diagnostics["conflicting_families"])
-        self.assertIn("Why-Not", diagnostics["formatted"])
+        self.assertIn("Rez Conflict Diagnostics", diagnostics["formatted"])
 
     def test_context_info_execute_command_and_studio_extensions(self):
         import io

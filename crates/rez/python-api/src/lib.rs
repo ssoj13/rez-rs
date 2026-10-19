@@ -344,9 +344,32 @@ fn context_diagnose_conflicts(
     };
     let provider = FilesystemPackageProvider::from_paths(&search_paths).map_err(error)?;
     let report = context.diagnose_conflicts(&provider).map_err(error)?;
+    let mut conflicting_families = std::collections::BTreeSet::new();
+    for item in &report.direct_contradictions {
+        conflicting_families.insert(item.package_name.clone());
+    }
+    for item in &report.missing_packages {
+        conflicting_families.insert(item.package_name.clone());
+    }
+    for item in &report.unsatisfied_ranges {
+        conflicting_families.insert(item.package_name.clone());
+    }
+    for item in &report.dependency_conflicts {
+        conflicting_families.insert(item.source_package.clone());
+        if let Ok(req) = Requirement::new(&item.source_dependency) {
+            conflicting_families.insert(req.name().to_string());
+        }
+        if let Ok(req) = Requirement::new(&item.conflicting_requirement) {
+            conflicting_families.insert(req.name().to_string());
+        }
+    }
+    let formatted = report.format_human();
     let mut val =
         serde_json::to_value(&report).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    val["formatted"] = json!(report.format_human());
+    val["status"] = json!(context.status.to_string());
+    val["conflicting_families"] = json!(conflicting_families.into_iter().collect::<Vec<_>>());
+    val["formatted"] = json!(&formatted);
+    val["formatted_report"] = json!(formatted);
     object(py, val)
 }
 
@@ -362,9 +385,12 @@ fn context_inspect_environment(
     let report = context
         .inspect_environment(parent_environ.as_ref(), clean_room)
         .map_err(error)?;
+    let formatted = report.format_human();
     let mut val =
         serde_json::to_value(&report).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    val["formatted"] = json!(report.format_human());
+    val["clean_room_active"] = json!(report.clean_room_enabled);
+    val["formatted"] = json!(&formatted);
+    val["formatted_report"] = json!(formatted);
     object(py, val)
 }
 
@@ -402,7 +428,7 @@ fn classify_exit_code(
     let classification = resolve::supervisor::classify_exit_code(
         raw_code,
         native_signal,
-        foundation::platform::Platform::current(),
+        model::platform::Platform::current(),
     );
     object(
         py,

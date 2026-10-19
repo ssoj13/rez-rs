@@ -3272,10 +3272,7 @@ package_preprocess_mode = "before"
             config.package_preprocess_function.as_deref(),
             Some("studio_hooks.validate_pkg")
         );
-        assert_eq!(
-            config.package_preprocess_mode,
-            PackagePreprocessMode::Before
-        );
+        assert_eq!(config.package_preprocess_mode, PreprocessMode::Before);
 
         let mut env_overrides = HashMap::new();
         env_overrides.insert("REZ_DIAGNOSE_CONFLICTS_ON_FAIL".into(), "0".into());
