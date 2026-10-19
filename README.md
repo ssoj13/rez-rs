@@ -43,7 +43,7 @@ The [CI and release workflow](.github/workflows/ci.yml) runs `python bootstrap.p
 - `rez-rs-v<version>-<platform>.zip`: `install.py`, its support modules, and `rez_rs/<version>/` (`package.py`, the CLI executable, and `rez-rs.zip` sources).
 - `rez-rs-python-v<version>-<platform>.zip`: the abi3 `rez` package with `rez.rs` (`rs.pyd` on Windows, `rs.abi3.so` on Linux/macOS) and compatibility wrappers, tested after extraction on CPython 3.13 and 3.10.
 
-Pushing a `v<version>` tag matching `Cargo.toml` publishes all six ZIPs as a GitHub release (see [`v0.1.0`](https://github.com/ssoj13/rez-rs/releases/tag/v0.1.0)); tags containing a prerelease suffix create a prerelease. Fork pull requests skip the build while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
+Pushing a `v<version>` tag matching `Cargo.toml` publishes all six ZIPs as a GitHub release (see [`v3.4.0`](https://github.com/ssoj13/rez-rs/releases/tag/v3.4.0)); tags containing a prerelease suffix create a prerelease. Fork pull requests skip the build while the GUI dependencies remain private. See [CI setup](docs/mdbook/src/development.md#github-ci-and-releases).
 
 The executable carries its interpreter, standard library, configuration template, and standard binders. No companion Python source files are needed for `rez --write-config` or `rez bind --quickstart`. Quickstart binds software already installed on the host; Python, pip, and setuptools can be skipped when unavailable. A bound CPython environment still depends on its installed base Python.
 

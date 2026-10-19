@@ -37,7 +37,7 @@ On Unix the extension filename is `rs.abi3.so`. The extension uses the CPython s
 Add the directory containing `rez/` to Python's module search path. On Windows:
 
 ```powershell
-$env:PYTHONPATH = (Resolve-Path dist/python/0.1.0).Path
+$env:PYTHONPATH = (Resolve-Path dist/python/3.4.0).Path
 python -c "from rez.version import Version; from rez import rs; print(Version('1.2'), rs.__version__)"
 ```
 

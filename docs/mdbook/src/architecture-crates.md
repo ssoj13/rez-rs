@@ -49,7 +49,7 @@ cargo test -p build-system --lib
 cargo test --test cli_integration
 ```
 
-`bootstrap.py b` builds the release workspace. `bootstrap.py p` builds the release CLI and CPython bridge, then prepares separate CLI/source and Python distributions. See [Python API](python-api.md). The executable remains `rez` / `rez.exe`, and the root package remains version `0.1.0`.
+`bootstrap.py b` builds the release workspace. `bootstrap.py p` builds the release CLI and CPython bridge, then prepares separate CLI/source and Python distributions. See [Python API](python-api.md). The executable remains `rez` / `rez.exe`, and the root package version is `3.4.0`.
 
 Root-only `cargo test` does not execute the libraries' moved unit-test targets. Use `cargo test --workspace` for the workspace gate. The workspace selects `gui` as a member, including when the root default features are disabled; use package selection or `--exclude gui` when a check deliberately omits it. Vendored RustPython tests run through their own manifests.
 
